@@ -26,7 +26,7 @@ jobs:
     name: Actionlint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install actionlint
         env:
@@ -43,7 +43,7 @@ jobs:
     name: YAML Validity
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install YAML parser
         run: python3 -m pip install --user PyYAML==6.0.2
