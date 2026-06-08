@@ -1,0 +1,76 @@
+name: Setup Node
+description: Configure Node, package-manager caching, and install workspace dependencies.
+
+inputs:
+  node-version:
+    description: Node.js version to install.
+    required: false
+    default: '24'
+  package-manager:
+    description: Package manager to configure. Supported values are pnpm and yarn.
+    required: false
+    default: pnpm
+  cache-dependency-path:
+    description: Path to the package-manager lockfile or lockfiles used for caching.
+    required: false
+    default: ''
+  working-directory:
+    description: Directory where dependencies should be installed.
+    required: false
+    default: .
+  install-command:
+    description: Command used to install dependencies. Defaults by package-manager when empty.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Validate package manager
+      shell: bash
+      env:
+        PACKAGE_MANAGER: ${{ inputs.package-manager }}
+      run: |
+        case "$PACKAGE_MANAGER" in
+          pnpm|yarn)
+            ;;
+          *)
+            echo "::error::Unsupported package-manager: $PACKAGE_MANAGER. Use pnpm or yarn."
+            exit 1
+            ;;
+        esac
+
+    - name: Enable Corepack for Yarn
+      if: ${{ inputs.package-manager == 'yarn' }}
+      shell: bash
+      run: corepack enable
+
+    - name: Set up pnpm
+      if: ${{ inputs.package-manager == 'pnpm' }}
+      uses: pnpm/action-setup@v5
+
+    - uses: actions/setup-node@v6
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: ${{ inputs.package-manager }}
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        INSTALL_COMMAND: ${{ inputs.install-command }}
+        PACKAGE_MANAGER: ${{ inputs.package-manager }}
+      run: |
+        if [ -z "$INSTALL_COMMAND" ]; then
+          case "$PACKAGE_MANAGER" in
+            pnpm)
+              INSTALL_COMMAND="pnpm install --frozen-lockfile"
+              ;;
+            yarn)
+              INSTALL_COMMAND="yarn install --immutable"
+              ;;
+          esac
+        fi
+
+        bash -c "$INSTALL_COMMAND"

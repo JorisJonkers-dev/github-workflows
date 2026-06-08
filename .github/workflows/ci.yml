@@ -1,0 +1,93 @@
+# Canonical single CI workflow for every ExtraToast repository.
+#
+# Org convention: ONE pipeline per repo, and it terminates in a single
+# aggregating job named "Pipeline Complete". That job name is the ONLY
+# required status check in the org/repo ruleset -- every other job feeds
+# into it via `needs:`. Adding or renaming an upstream job never requires
+# touching branch protection: as long as it is in `needs:` below, it gates
+# merges through the aggregator.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: Actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.7
+        run: |
+          curl -sSfL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" -o /tmp/actionlint.tar.gz
+          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
+          sudo install /tmp/actionlint /usr/local/bin/actionlint
+
+      - name: Lint workflows
+        run: actionlint .github/workflows/*.yml
+
+  yaml-validity:
+    name: YAML Validity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install YAML parser
+        run: python3 -m pip install --user PyYAML==6.0.2
+
+      - name: Validate YAML files
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import sys
+          import yaml
+
+          files = sorted(
+              path for path in Path(".").rglob("*")
+              if path.suffix in {".yml", ".yaml"} and ".git" not in path.parts
+          )
+
+          failed = False
+          for path in files:
+              try:
+                  with path.open("r", encoding="utf-8") as handle:
+                      yaml.safe_load(handle)
+              except Exception as exc:
+                  failed = True
+                  print(f"::error file={path}::{exc}")
+
+          if failed:
+              sys.exit(1)
+
+          print(f"Validated {len(files)} YAML files.")
+          PY
+
+  # ---------------------------------------------------------------------------
+  # Terminal aggregator. This is the single required check in the ruleset.
+  # It runs even when an upstream job fails/cancels (if: always()) and then
+  # explicitly fails unless every dependency succeeded -- so a skipped or
+  # failed gating job can never be mistaken for a green pipeline.
+  # ---------------------------------------------------------------------------
+  pipeline-complete:
+    name: Pipeline Complete
+    if: always()
+    needs: [actionlint, yaml-validity]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all gating jobs succeeded
+        uses: re-actors/alls-green@release/v1
+        with:
+          jobs: ${{ toJSON(needs) }}

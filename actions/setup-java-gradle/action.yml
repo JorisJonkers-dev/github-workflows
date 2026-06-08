@@ -1,0 +1,33 @@
+name: Setup Java And Gradle
+description: Configure Java and Gradle caching for CI jobs.
+
+inputs:
+  java-version:
+    description: Java version to install.
+    required: false
+    default: '21'
+  java-distribution:
+    description: Java distribution to install.
+    required: false
+    default: temurin
+  gradle-cache-disabled:
+    description: Whether to disable Gradle dependency caching.
+    required: false
+    default: 'false'
+  gradle-cache-read-only:
+    description: Whether Gradle cache entries should be restored without saving updates.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@v5
+      with:
+        distribution: ${{ inputs.java-distribution }}
+        java-version: ${{ inputs.java-version }}
+
+    - uses: gradle/actions/setup-gradle@v6
+      with:
+        cache-disabled: ${{ inputs.gradle-cache-disabled }}
+        cache-read-only: ${{ inputs.gradle-cache-read-only }}

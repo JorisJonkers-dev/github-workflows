@@ -1,0 +1,81 @@
+name: Prepare CI Host
+description: Download and load CI Docker images, then optionally configure dev DNS.
+
+inputs:
+  artifact-pattern:
+    description: Artifact pattern to download.
+    required: false
+    default: image-*
+  artifact-path:
+    description: Directory where image artifacts are downloaded.
+    required: false
+    default: /tmp/images
+  image-name-pattern:
+    description: Directory pattern below artifact-path that contains image tarballs.
+    required: false
+    default: image-*
+  image-tar-pattern:
+    description: File pattern for Docker image tarballs.
+    required: false
+    default: '*.tar'
+  configure-dev-dns:
+    description: Whether to run the dev DNS setup script.
+    required: false
+    default: 'true'
+  dev-dns-script-path:
+    description: Path to the dev DNS setup script in the checked-out repository.
+    required: false
+    default: infra/scripts/setup-dev-dns.sh
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@v8
+      with:
+        pattern: ${{ inputs.artifact-pattern }}
+        path: ${{ inputs.artifact-path }}
+
+    - name: Load Docker images
+      shell: bash
+      env:
+        ARTIFACT_PATH: ${{ inputs.artifact-path }}
+        IMAGE_NAME_PATTERN: ${{ inputs.image-name-pattern }}
+        IMAGE_TAR_PATTERN: ${{ inputs.image-tar-pattern }}
+      run: |
+        mapfile -d '' tarballs < <(
+          find "$ARTIFACT_PATH" \
+            -type f \
+            -path "$ARTIFACT_PATH/$IMAGE_NAME_PATTERN/$IMAGE_TAR_PATTERN" \
+            -print0 | sort -z
+        )
+
+        if [ "${#tarballs[@]}" -eq 0 ]; then
+          echo "::error::No Docker image tarballs matched $ARTIFACT_PATH/$IMAGE_NAME_PATTERN/$IMAGE_TAR_PATTERN"
+          exit 1
+        fi
+
+        for tar in "${tarballs[@]}"; do
+          docker load -i "$tar"
+        done
+
+    - name: Configure dev DNS
+      shell: bash
+      env:
+        CONFIGURE_DEV_DNS: ${{ inputs.configure-dev-dns }}
+        DEV_DNS_SCRIPT_PATH: ${{ inputs.dev-dns-script-path }}
+      run: |
+        if [ "$CONFIGURE_DEV_DNS" != "true" ]; then
+          exit 0
+        fi
+
+        if [ -z "$DEV_DNS_SCRIPT_PATH" ]; then
+          echo "::error::dev-dns-script-path is required when configure-dev-dns is true."
+          exit 1
+        fi
+
+        if [ ! -f "$DEV_DNS_SCRIPT_PATH" ]; then
+          echo "::error::Dev DNS script not found: $DEV_DNS_SCRIPT_PATH"
+          exit 1
+        fi
+
+        sudo bash "$DEV_DNS_SCRIPT_PATH"

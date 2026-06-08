@@ -1,0 +1,78 @@
+name: JVM CI
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        description: Java version to install.
+        required: false
+        type: string
+        default: '21'
+      java-distribution:
+        description: Java distribution to install.
+        required: false
+        type: string
+        default: temurin
+      working-directory:
+        description: Directory that contains the Gradle build.
+        required: false
+        type: string
+        default: .
+      gradle-command:
+        description: Gradle command to run.
+        required: false
+        type: string
+        default: ./gradlew
+      gradle-args:
+        description: Additional Gradle arguments appended to lint and test commands.
+        required: false
+        type: string
+        default: --no-daemon
+      lint-gradle-args:
+        description: Gradle tasks or arguments for lint checks.
+        required: false
+        type: string
+        default: check
+      test-gradle-args:
+        description: Gradle tasks or arguments for tests.
+        required: false
+        type: string
+        default: test
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: JVM Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: ${{ inputs.java-distribution }}
+          java-version: ${{ inputs.java-version }}
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Run lint checks
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.gradle-command }} ${{ inputs.lint-gradle-args }} ${{ inputs.gradle-args }}
+
+  test:
+    name: JVM Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: ${{ inputs.java-distribution }}
+          java-version: ${{ inputs.java-version }}
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Run tests
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.gradle-command }} ${{ inputs.test-gradle-args }} ${{ inputs.gradle-args }}
