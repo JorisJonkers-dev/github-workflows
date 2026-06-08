@@ -1,0 +1,101 @@
+name: Production Canary
+
+on:
+  workflow_call:
+    inputs:
+      enabled:
+        description: Set to true in the caller to run the canary.
+        required: false
+        type: boolean
+        default: true
+      canary-command:
+        description: Command that performs the caller-owned production smoke test.
+        required: true
+        type: string
+      cleanup-command:
+        description: Optional cleanup command run after the canary.
+        required: false
+        type: string
+        default: ''
+      diagnostics-command:
+        description: Optional diagnostics command run when the canary fails.
+        required: false
+        type: string
+        default: ''
+      working-directory:
+        description: Directory where commands run.
+        required: false
+        type: string
+        default: .
+      timeout-minutes:
+        description: Job timeout.
+        required: false
+        type: number
+        default: 5
+      post-push-delay-seconds:
+        description: Seconds to wait on push events before running the canary.
+        required: false
+        type: number
+        default: 0
+      notification-message:
+        description: Message sent to the webhook on failure.
+        required: false
+        type: string
+        default: Production canary failed.
+    secrets:
+      webhook-url:
+        description: Optional webhook URL used for failure notification.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    name: Production Canary
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    if: ${{ inputs.enabled }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Wait after push
+        if: ${{ github.event_name == 'push' && inputs.post-push-delay-seconds > 0 }}
+        env:
+          DELAY_SECONDS: ${{ inputs.post-push-delay-seconds }}
+        run: sleep "$DELAY_SECONDS"
+
+      - name: Run canary
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          CANARY_COMMAND: ${{ inputs.canary-command }}
+        run: bash -euo pipefail -c "$CANARY_COMMAND"
+
+      - name: Run diagnostics
+        if: failure() && inputs.diagnostics-command != ''
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          DIAGNOSTICS_COMMAND: ${{ inputs.diagnostics-command }}
+        run: bash -euo pipefail -c "$DIAGNOSTICS_COMMAND"
+
+      - name: Run cleanup
+        if: always() && inputs.cleanup-command != ''
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          CLEANUP_COMMAND: ${{ inputs.cleanup-command }}
+        run: bash -euo pipefail -c "$CLEANUP_COMMAND"
+
+      - name: Notify on failure
+        if: failure()
+        env:
+          WEBHOOK_URL: ${{ secrets.webhook-url }}
+          NOTIFICATION_MESSAGE: ${{ inputs.notification-message }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${WEBHOOK_URL:-}" ]; then
+            exit 0
+          fi
+          jq -n --arg text "${NOTIFICATION_MESSAGE} ${RUN_URL}" '{text: $text}' \
+            | curl -sf -X POST "$WEBHOOK_URL" -H 'Content-Type: application/json' --data @- \
+            || true

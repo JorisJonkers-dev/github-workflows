@@ -104,6 +104,109 @@ Inputs:
 
 ## Reusable workflows
 
+### `migration-guard.yml`
+
+Checks Flyway-style SQL migrations for two failure modes: existing migrations
+changed after being committed, and newly added migrations whose version is not
+greater than the base branch maximum for the same service.
+
+```yaml
+jobs:
+  migration-guard:
+    uses: ExtraToast/github-workflows/.github/workflows/migration-guard.yml@v0.3.0
+    with:
+      migration-regex: 'services/[^/]+/src/main/resources/db/migration(-pg)?/V[0-9][^/]*\.sql$'
+      scope-regex: '(services/[^/]+)/.*'
+      override-label: allow-migration-change
+```
+
+Inputs:
+
+| Name | Default | Purpose |
+| --- | --- | --- |
+| `base-ref` | inferred PR base or default branch | Git ref used as the immutable migration baseline. |
+| `migration-regex` | `services/.../db/migration(-pg)?/V*.sql` | Regex matching migration files. |
+| `scope-regex` | `(services/[^/]+)/.*` | Regex whose first capture group defines the version namespace. |
+| `override-label` | `allow-migration-change` | PR label that downgrades existing migration changes to warnings. |
+
+### `crac-train.yml`
+
+Builds CRaC training Docker targets, runs them with Postgres, Valkey, and
+RabbitMQ sidecars, validates that a checkpoint was produced, and uploads one
+checkpoint artifact per service.
+
+```yaml
+jobs:
+  crac-train:
+    uses: ExtraToast/github-workflows/.github/workflows/crac-train.yml@v0.3.0
+    with:
+      service-matrix: >-
+        [
+          {
+            "service": "example-api",
+            "context": ".",
+            "dockerfile": "services/example-api/Dockerfile",
+            "db_name": "example_db",
+            "db_user": "example_user",
+            "db_password": "example_password",
+            "port": 8080
+          }
+        ]
+      docker-target: train
+      checkpoint-path: /opt/crac/checkpoint
+      expected-exit-codes: '0 137'
+    secrets:
+      packages-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+Inputs:
+
+| Name | Default | Purpose |
+| --- | --- | --- |
+| `service-matrix` | required | JSON matrix include list for services to train. |
+| `docker-target` | `train` | Dockerfile target used for training images. |
+| `checkpoint-path` | `/opt/crac/checkpoint` | Container path where CRaC writes checkpoint files. |
+| `expected-exit-codes` | `0 137` | Space-separated accepted container exit codes. |
+| `artifact-retention-days` | `7` | Checkpoint artifact retention period. |
+| `postgres-image` | `postgres:17-alpine` | Postgres sidecar image. |
+| `valkey-image` | `valkey/valkey:7-alpine` | Valkey sidecar image. |
+| `rabbitmq-image` | `rabbitmq:3-management-alpine` | RabbitMQ sidecar image. |
+| `extra-docker-run-args` | empty | Extra arguments appended before the training image tag. |
+
+### `production-canary.yml`
+
+Runs a caller-owned production smoke command with optional post-push delay,
+diagnostics, cleanup, and webhook notification. Service-specific URLs, auth,
+assertions, and mutation behavior stay in the caller repository.
+
+```yaml
+jobs:
+  production-canary:
+    uses: ExtraToast/github-workflows/.github/workflows/production-canary.yml@v0.3.0
+    with:
+      enabled: ${{ vars.PROD_CANARY_ENABLED == 'true' }}
+      post-push-delay-seconds: 180
+      canary-command: ./scripts/prod-canary.sh
+      diagnostics-command: ./scripts/prod-canary-diagnostics.sh
+      cleanup-command: ./scripts/prod-canary-cleanup.sh
+      notification-message: Production canary failed.
+    secrets:
+      webhook-url: ${{ secrets.PROD_CANARY_WEBHOOK_URL }}
+```
+
+Inputs:
+
+| Name | Default | Purpose |
+| --- | --- | --- |
+| `enabled` | `true` | Allows callers to opt in through repository variables. |
+| `canary-command` | required | Caller-owned smoke command. |
+| `cleanup-command` | empty | Optional cleanup command run with `always()`. |
+| `diagnostics-command` | empty | Optional diagnostics command run on failure. |
+| `working-directory` | `.` | Directory where commands run. |
+| `timeout-minutes` | `5` | Canary job timeout. |
+| `post-push-delay-seconds` | `0` | Delay for push-triggered callers. |
+| `notification-message` | `Production canary failed.` | Message prefix posted on failure. |
+
 ### `jvm-ci.yml`
 
 Runs generic Gradle lint and test jobs for JVM repositories.

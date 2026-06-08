@@ -1,0 +1,174 @@
+name: CRaC Train
+
+on:
+  workflow_call:
+    inputs:
+      service-matrix:
+        description: JSON matrix include list with service, context, dockerfile, db_name, db_user, db_password, and port.
+        required: true
+        type: string
+      docker-target:
+        description: Dockerfile target that produces the CRaC training image.
+        required: false
+        type: string
+        default: train
+      checkpoint-path:
+        description: Path inside the training container where CRaC writes checkpoint files.
+        required: false
+        type: string
+        default: /opt/crac/checkpoint
+      expected-exit-codes:
+        description: Space-separated container exit codes accepted after training.
+        required: false
+        type: string
+        default: '0 137'
+      artifact-retention-days:
+        description: Retention period for checkpoint artifacts.
+        required: false
+        type: number
+        default: 7
+      postgres-image:
+        description: Postgres sidecar image.
+        required: false
+        type: string
+        default: postgres:17-alpine
+      valkey-image:
+        description: Valkey sidecar image.
+        required: false
+        type: string
+        default: valkey/valkey:7-alpine
+      rabbitmq-image:
+        description: RabbitMQ sidecar image.
+        required: false
+        type: string
+        default: rabbitmq:3-management-alpine
+      extra-docker-run-args:
+        description: Extra arguments appended to docker run before the image tag.
+        required: false
+        type: string
+        default: ''
+    secrets:
+      packages-token:
+        description: Token passed as docker build secret github_token.
+        required: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  train:
+    name: Train ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.service-matrix) }}
+    services:
+      postgres:
+        image: ${{ inputs.postgres-image }}
+        env:
+          POSTGRES_DB: ${{ matrix.db_name }}
+          POSTGRES_USER: ${{ matrix.db_user }}
+          POSTGRES_PASSWORD: ${{ matrix.db_password }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      valkey:
+        image: ${{ inputs.valkey-image }}
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      rabbitmq:
+        image: ${{ inputs.rabbitmq-image }}
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build training image
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context || '.' }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ inputs.docker-target }}
+          load: true
+          tags: ${{ matrix.service }}-crac-train:local
+          cache-from: type=gha,scope=${{ matrix.service }}-crac-train
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-crac-train
+          secrets: |
+            github_token=${{ secrets.packages-token || secrets.GITHUB_TOKEN }}
+            github_actor=${{ github.actor }}
+
+      - name: Run training
+        env:
+          CHECKPOINT_PATH: ${{ inputs.checkpoint-path }}
+          DB_USER: ${{ matrix.db_user }}
+          DB_PASSWORD: ${{ matrix.db_password }}
+          SERVER_PORT: ${{ matrix.port }}
+          EXPECTED_EXIT_CODES: ${{ inputs.expected-exit-codes }}
+          EXTRA_DOCKER_RUN_ARGS: ${{ inputs.extra-docker-run-args }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p checkpoint
+          chmod 777 checkpoint
+
+          set +e
+          docker run --rm \
+            --privileged \
+            --network=host \
+            -v "$PWD/checkpoint:${CHECKPOINT_PATH}" \
+            -e DB_HOST=localhost \
+            -e DB_PORT=5432 \
+            -e DB_USER="${DB_USER}" \
+            -e DB_PASSWORD="${DB_PASSWORD}" \
+            -e VALKEY_HOST=localhost \
+            -e VALKEY_PORT=6379 \
+            -e SPRING_RABBITMQ_HOST=localhost \
+            -e SPRING_RABBITMQ_PORT=5672 \
+            -e SPRING_RABBITMQ_USERNAME=guest \
+            -e SPRING_RABBITMQ_PASSWORD=guest \
+            -e SERVER_PORT="${SERVER_PORT}" \
+            "${EXTRA_DOCKER_RUN_ARGS}" \
+            ${{ matrix.service }}-crac-train:local
+          exit_code=$?
+          set -e
+
+          echo "Container exit code: ${exit_code}"
+          find checkpoint -maxdepth 2 -type f -print
+          if [ -z "$(ls -A checkpoint 2>/dev/null)" ]; then
+            echo "::error::checkpoint directory is empty"
+            exit 1
+          fi
+
+          for expected in ${EXPECTED_EXIT_CODES}; do
+            if [ "$exit_code" = "$expected" ]; then
+              exit 0
+            fi
+          done
+
+          echo "::error::training container exited ${exit_code}; expected one of: ${EXPECTED_EXIT_CODES}"
+          exit "$exit_code"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.service }}-checkpoint
+          path: checkpoint/
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact-retention-days }}
