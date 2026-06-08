@@ -38,6 +38,15 @@ on:
         required: false
         type: string
         default: test
+      packages-token:
+        description: GitHub Packages token passed to Gradle as GITHUB_TOKEN.
+        required: false
+        type: string
+        default: ''
+    secrets:
+      packages-token:
+        description: GitHub Packages token passed to Gradle as GITHUB_TOKEN.
+        required: false
 
 permissions:
   contents: read
@@ -49,12 +58,34 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-java@v5
-        with:
-          distribution: ${{ inputs.java-distribution }}
-          java-version: ${{ inputs.java-version }}
+      - name: Resolve workflow ref
+        id: workflow-ref
+        shell: bash
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
 
-      - uses: gradle/actions/setup-gradle@v6
+          ref="${WORKFLOW_REF#*@}"
+          if [ -z "$ref" ] || [ "$ref" = "$WORKFLOW_REF" ]; then
+            echo "::error::Unable to resolve reusable workflow ref from $WORKFLOW_REF"
+            exit 1
+          fi
+
+          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        with:
+          repository: ExtraToast/github-workflows
+          ref: ${{ steps.workflow-ref.outputs.ref }}
+          path: .github-workflows
+          persist-credentials: false
+
+      - uses: ./.github-workflows/actions/setup-java-gradle
+        with:
+          java-distribution: ${{ inputs.java-distribution }}
+          java-version: ${{ inputs.java-version }}
+          github-packages-token: ${{ inputs.packages-token || secrets.packages-token }}
 
       - name: Run lint checks
         working-directory: ${{ inputs.working-directory }}
@@ -66,12 +97,34 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-java@v5
-        with:
-          distribution: ${{ inputs.java-distribution }}
-          java-version: ${{ inputs.java-version }}
+      - name: Resolve workflow ref
+        id: workflow-ref
+        shell: bash
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
 
-      - uses: gradle/actions/setup-gradle@v6
+          ref="${WORKFLOW_REF#*@}"
+          if [ -z "$ref" ] || [ "$ref" = "$WORKFLOW_REF" ]; then
+            echo "::error::Unable to resolve reusable workflow ref from $WORKFLOW_REF"
+            exit 1
+          fi
+
+          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        with:
+          repository: ExtraToast/github-workflows
+          ref: ${{ steps.workflow-ref.outputs.ref }}
+          path: .github-workflows
+          persist-credentials: false
+
+      - uses: ./.github-workflows/actions/setup-java-gradle
+        with:
+          java-distribution: ${{ inputs.java-distribution }}
+          java-version: ${{ inputs.java-version }}
+          github-packages-token: ${{ inputs.packages-token || secrets.packages-token }}
 
       - name: Run tests
         working-directory: ${{ inputs.working-directory }}

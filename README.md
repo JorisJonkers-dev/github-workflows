@@ -14,7 +14,7 @@ a repository-provided dev DNS setup script.
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: ExtraToast/github-workflows/actions/prepare-ci-host@v0.1.0
+  - uses: ExtraToast/github-workflows/actions/prepare-ci-host@v0.2.0
     with:
       artifact-pattern: image-*
       artifact-path: /tmp/images
@@ -42,10 +42,11 @@ Installs Java and configures Gradle dependency caching.
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: ExtraToast/github-workflows/actions/setup-java-gradle@v0.1.0
+  - uses: ExtraToast/github-workflows/actions/setup-java-gradle@v0.2.0
     with:
       java-version: '21'
       java-distribution: temurin
+      github-packages-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 Inputs:
@@ -56,6 +57,8 @@ Inputs:
 | `java-distribution` | `temurin` | Java distribution installed by `actions/setup-java`. |
 | `gradle-cache-disabled` | `false` | Disables Gradle caching when set to `true`. |
 | `gradle-cache-read-only` | `false` | Restores Gradle cache entries without saving updates when set to `true`. |
+| `github-packages-actor` | `github.actor` | GitHub Packages actor exported as `GITHUB_ACTOR` when `github-packages-token` is set. |
+| `github-packages-token` | empty | GitHub Packages token exported as `GITHUB_TOKEN` for Gradle package resolution. |
 
 ### `setup-node`
 
@@ -65,11 +68,12 @@ The package manager may be `pnpm` or Yarn Berry.
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: ExtraToast/github-workflows/actions/setup-node@v0.1.0
+  - uses: ExtraToast/github-workflows/actions/setup-node@v0.2.0
     with:
       node-version: '24'
       package-manager: pnpm
       cache-dependency-path: pnpm-lock.yaml
+      github-packages-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 Yarn example:
@@ -77,11 +81,12 @@ Yarn example:
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: ExtraToast/github-workflows/actions/setup-node@v0.1.0
+  - uses: ExtraToast/github-workflows/actions/setup-node@v0.2.0
     with:
       node-version: '24'
       package-manager: yarn
       cache-dependency-path: yarn.lock
+      github-packages-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 Inputs:
@@ -93,6 +98,9 @@ Inputs:
 | `cache-dependency-path` | empty | Lockfile path or paths used for dependency caching. |
 | `working-directory` | `.` | Directory where dependencies are installed. |
 | `install-command` | empty | Overrides the install command. Empty uses `pnpm install --frozen-lockfile` or `yarn install --immutable`. |
+| `github-packages-token` | empty | GitHub Packages token used to write project `.npmrc` auth and export `NODE_AUTH_TOKEN`. |
+| `npm-scope` | `@extratoast` | npm scope resolved from GitHub Packages when `github-packages-token` is set. |
+| `github-packages-registry` | `https://npm.pkg.github.com` | npm registry URL used for the configured GitHub Packages scope. |
 
 ## Reusable workflows
 
@@ -103,12 +111,14 @@ Runs generic Gradle lint and test jobs for JVM repositories.
 ```yaml
 jobs:
   jvm-ci:
-    uses: ExtraToast/github-workflows/.github/workflows/jvm-ci.yml@v0.1.0
+    uses: ExtraToast/github-workflows/.github/workflows/jvm-ci.yml@v0.2.0
     with:
       java-version: '21'
       gradle-args: --no-daemon --stacktrace
       lint-gradle-args: detekt ktlintCheck
       test-gradle-args: test
+    secrets:
+      packages-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 Inputs:
@@ -122,3 +132,4 @@ Inputs:
 | `gradle-args` | `--no-daemon` | Additional arguments appended to lint and test commands. |
 | `lint-gradle-args` | `check` | Gradle tasks or arguments for lint checks. |
 | `test-gradle-args` | `test` | Gradle tasks or arguments for tests. |
+| `packages-token` | empty | GitHub Packages token passed to `setup-java-gradle` for Gradle package resolution. Prefer passing it as the `packages-token` workflow secret. |

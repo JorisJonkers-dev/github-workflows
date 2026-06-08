@@ -18,10 +18,34 @@ inputs:
     description: Whether Gradle cache entries should be restored without saving updates.
     required: false
     default: 'false'
+  github-packages-actor:
+    description: GitHub Packages actor exposed to Gradle as GITHUB_ACTOR when github-packages-token is set. Empty defaults to github.actor.
+    required: false
+    default: ''
+  github-packages-token:
+    description: GitHub Packages token exposed to Gradle as GITHUB_TOKEN.
+    required: false
+    default: ''
 
 runs:
   using: composite
   steps:
+    - name: Configure GitHub Packages for Gradle
+      if: ${{ inputs.github-packages-token != '' }}
+      shell: bash
+      env:
+        DEFAULT_GITHUB_ACTOR: ${{ github.actor }}
+        GITHUB_PACKAGES_ACTOR: ${{ inputs.github-packages-actor }}
+        GITHUB_PACKAGES_TOKEN: ${{ inputs.github-packages-token }}
+      run: |
+        set -euo pipefail
+
+        actor="${GITHUB_PACKAGES_ACTOR:-$DEFAULT_GITHUB_ACTOR}"
+        {
+          printf 'GITHUB_ACTOR=%s\n' "$actor"
+          printf 'GITHUB_TOKEN=%s\n' "$GITHUB_PACKAGES_TOKEN"
+        } >> "$GITHUB_ENV"
+
     - uses: actions/setup-java@v5
       with:
         distribution: ${{ inputs.java-distribution }}

@@ -22,6 +22,18 @@ inputs:
     description: Command used to install dependencies. Defaults by package-manager when empty.
     required: false
     default: ''
+  github-packages-token:
+    description: GitHub Packages token used to authenticate npm package installs.
+    required: false
+    default: ''
+  npm-scope:
+    description: npm scope resolved from GitHub Packages when github-packages-token is set.
+    required: false
+    default: '@extratoast'
+  github-packages-registry:
+    description: npm registry URL used for the configured GitHub Packages scope.
+    required: false
+    default: https://npm.pkg.github.com
 
 runs:
   using: composite
@@ -54,6 +66,40 @@ runs:
         node-version: ${{ inputs.node-version }}
         cache: ${{ inputs.package-manager }}
         cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+    - name: Configure GitHub Packages for npm
+      if: ${{ inputs.github-packages-token != '' }}
+      shell: bash
+      env:
+        GITHUB_PACKAGES_TOKEN: ${{ inputs.github-packages-token }}
+        GITHUB_PACKAGES_REGISTRY: ${{ inputs.github-packages-registry }}
+        NPM_SCOPE: ${{ inputs.npm-scope }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+
+        scope="$NPM_SCOPE"
+        case "$scope" in
+          @*)
+            ;;
+          *)
+            scope="@$scope"
+            ;;
+        esac
+
+        registry="${GITHUB_PACKAGES_REGISTRY%/}"
+        registry_host="${registry#http://}"
+        registry_host="${registry_host#https://}"
+        npmrc_path="$WORKING_DIRECTORY/.npmrc"
+
+        mkdir -p "$WORKING_DIRECTORY"
+        touch "$npmrc_path"
+        {
+          printf '%s:registry=%s\n' "$scope" "$registry"
+          printf '//%s/:_authToken=%s\n' "$registry_host" "$GITHUB_PACKAGES_TOKEN"
+        } >> "$npmrc_path"
+
+        printf 'NODE_AUTH_TOKEN=%s\n' "$GITHUB_PACKAGES_TOKEN" >> "$GITHUB_ENV"
 
     - name: Install dependencies
       shell: bash
