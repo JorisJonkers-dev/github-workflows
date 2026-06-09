@@ -104,17 +104,16 @@ Inputs:
 
 ### `compose-system-test-stack`
 
-Design-first skeleton for a future Docker Compose CI/system-test stack helper.
-It exposes the planned input surface for compose file lists, selected services,
-wait strategies, diagnostics, cleanup, and optional migration checks, but it
-does not start Docker Compose services yet.
+Runs a caller-owned Docker Compose CI/system-test stack, waits for service
+health or routes, runs optional migration checks, dumps diagnostics on failure,
+and tears the stack down by default. Compose files, service names, route URLs,
+migration assertions, and hook commands stay in the consumer repository.
 
 ```yaml
 steps:
   - uses: actions/checkout@v6
-  - uses: ExtraToast/github-workflows/actions/compose-system-test-stack@v0.3.0
+  - uses: ExtraToast/github-workflows/actions/compose-system-test-stack@v0.4.0
     with:
-      placeholder-ack: 'true'
       compose-files: |-
         docker-compose.yml
         docker-compose.ci.yml
@@ -125,23 +124,32 @@ steps:
       migration-check-command: .github/scripts/verify-migrations.sh
 ```
 
+Route wait files contain blank lines, comments, or either `name url` or `url`
+entries. Generate the file in the caller repository when URLs depend on
+environment-specific hostnames or ports.
+
+The action tears the stack down before the next workflow step unless
+`down-on-complete` is set to `false`. For tests that run in later steps, leave
+the stack up and provide separate caller-owned diagnostics and cleanup.
+
 Inputs:
 
 | Name | Default | Purpose |
 | --- | --- | --- |
 | `compose-files` | `docker-compose.yml`, `docker-compose.ci.yml` | Newline-separated compose files owned by the caller repository. |
-| `services` | empty | Space-separated services a future implementation should start. |
+| `services` | empty | Space-separated services to pass to `docker compose up`; empty starts the selected stack. |
 | `project-name` | empty | Optional Docker Compose project name. |
 | `working-directory` | `.` | Directory containing compose files and hook scripts. |
-| `wait-strategy` | `compose-wait` | Planned wait mode: `compose-wait`, `command`, `routes`, or `none`. |
+| `wait-strategy` | `compose-wait` | Wait mode: `compose-wait`, `services`, `command`, `routes`, or `none`. |
 | `wait-command` | empty | Caller-owned command for `wait-strategy=command`. |
 | `wait-routes-file` | empty | Caller-owned route list for `wait-strategy=routes`. |
+| `wait-timeout-seconds` | `300` | Timeout per route when `wait-strategy=routes`. |
+| `wait-interval-seconds` | `2` | Poll interval per route when `wait-strategy=routes`. |
 | `migration-check-command` | empty | Optional caller-owned migration verification command. |
-| `diagnostics-command` | empty | Optional caller-owned diagnostics command for failures. |
-| `cleanup-command` | empty | Optional caller-owned cleanup command. |
-| `up-args` | `--no-build --wait --timeout 300` | Planned extra `docker compose up` arguments. |
-| `down-on-complete` | `true` | Whether a future implementation should tear the stack down. |
-| `placeholder-ack` | `false` | Must be `true` to exercise this placeholder; otherwise the action fails. |
+| `diagnostics-command` | empty | Optional caller-owned diagnostics command for failures. Built-in `ps`, logs, and Docker disk diagnostics run first. |
+| `cleanup-command` | empty | Optional caller-owned cleanup command run before `docker compose down`. |
+| `up-args` | `--no-build --wait --timeout 300 -d` | Extra `docker compose up` arguments. |
+| `down-on-complete` | `true` | Whether to run `docker compose down --remove-orphans` after the stack step completes. |
 
 ## Reusable workflows
 

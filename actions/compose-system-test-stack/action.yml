@@ -1,5 +1,5 @@
 name: Docker Compose System-Test Stack
-description: Design-first skeleton for future Docker Compose CI/system-test stack orchestration.
+description: Run a generic Docker Compose CI/system-test stack with waits, diagnostics, cleanup, and optional migration checks.
 
 inputs:
   compose-files:
@@ -21,7 +21,7 @@ inputs:
     required: false
     default: .
   wait-strategy:
-    description: Planned wait mode. Supported skeleton values are compose-wait, command, routes, or none.
+    description: Wait mode. Supported values are compose-wait, services, command, routes, or none.
     required: false
     default: compose-wait
   wait-command:
@@ -29,50 +29,42 @@ inputs:
     required: false
     default: ''
   wait-routes-file:
-    description: Caller-owned route list for wait-strategy=routes.
+    description: Caller-owned route list for wait-strategy=routes. Each non-comment line is "name url" or "url".
     required: false
     default: ''
+  wait-timeout-seconds:
+    description: Timeout per route when wait-strategy=routes.
+    required: false
+    default: '300'
+  wait-interval-seconds:
+    description: Poll interval per route when wait-strategy=routes.
+    required: false
+    default: '2'
   migration-check-command:
     description: Optional caller-owned command that verifies migrations after stack startup.
     required: false
     default: ''
   diagnostics-command:
-    description: Optional caller-owned diagnostics command for failures.
+    description: Optional caller-owned diagnostics command for failures. Built-in compose diagnostics always run first.
     required: false
     default: ''
   cleanup-command:
-    description: Optional caller-owned cleanup command run by a future implementation.
+    description: Optional caller-owned cleanup command run before docker compose down.
     required: false
     default: ''
   up-args:
-    description: Extra docker compose up arguments planned for a future implementation.
+    description: Extra docker compose up arguments.
     required: false
-    default: --no-build --wait --timeout 300
+    default: --no-build --wait --timeout 300 -d
   down-on-complete:
-    description: Whether a future implementation should run docker compose down at completion.
+    description: Whether to run docker compose down after the stack step completes.
     required: false
     default: 'true'
-  placeholder-ack:
-    description: Set to true only when intentionally exercising this design-first placeholder.
-    required: false
-    default: 'false'
 
 runs:
   using: composite
   steps:
-    - name: Refuse accidental production use
-      shell: bash
-      env:
-        PLACEHOLDER_ACK: ${{ inputs.placeholder-ack }}
-      run: |
-        set -euo pipefail
-        if [ "$PLACEHOLDER_ACK" != "true" ]; then
-          echo "::error::compose-system-test-stack is a design-first skeleton and does not start Docker Compose services yet."
-          echo "::error::Set placeholder-ack=true only in placeholder tests or examples."
-          exit 1
-        fi
-
-    - name: Print planned Compose stack inputs
+    - name: Run Docker Compose system-test stack
       shell: bash
       env:
         COMPOSE_FILES: ${{ inputs.compose-files }}
@@ -82,23 +74,11 @@ runs:
         WAIT_STRATEGY: ${{ inputs.wait-strategy }}
         WAIT_COMMAND: ${{ inputs.wait-command }}
         WAIT_ROUTES_FILE: ${{ inputs.wait-routes-file }}
+        WAIT_TIMEOUT_SECONDS: ${{ inputs.wait-timeout-seconds }}
+        WAIT_INTERVAL_SECONDS: ${{ inputs.wait-interval-seconds }}
         MIGRATION_CHECK_COMMAND: ${{ inputs.migration-check-command }}
         DIAGNOSTICS_COMMAND: ${{ inputs.diagnostics-command }}
         CLEANUP_COMMAND: ${{ inputs.cleanup-command }}
         UP_ARGS: ${{ inputs.up-args }}
         DOWN_ON_COMPLETE: ${{ inputs.down-on-complete }}
-      run: |
-        set -euo pipefail
-        echo "Design-first placeholder only. Planned inputs:"
-        printf 'compose-files=%s\n' "$COMPOSE_FILES"
-        printf 'services=%s\n' "$SERVICES"
-        printf 'project-name=%s\n' "$PROJECT_NAME"
-        printf 'working-directory=%s\n' "$WORKING_DIRECTORY"
-        printf 'wait-strategy=%s\n' "$WAIT_STRATEGY"
-        printf 'wait-command=%s\n' "$WAIT_COMMAND"
-        printf 'wait-routes-file=%s\n' "$WAIT_ROUTES_FILE"
-        printf 'migration-check-command=%s\n' "$MIGRATION_CHECK_COMMAND"
-        printf 'diagnostics-command=%s\n' "$DIAGNOSTICS_COMMAND"
-        printf 'cleanup-command=%s\n' "$CLEANUP_COMMAND"
-        printf 'up-args=%s\n' "$UP_ARGS"
-        printf 'down-on-complete=%s\n' "$DOWN_ON_COMPLETE"
+      run: bash "${{ github.action_path }}/run.sh"

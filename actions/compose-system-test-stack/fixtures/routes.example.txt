@@ -1,3 +1,4 @@
 # name url
-app-health http://127.0.0.1:8080/health
-app-ready http://127.0.0.1:8080/ready
+# Substitute or generate route URLs in the caller repository before invoking the action.
+app-health ${SYSTEM_TEST_APP_BASE_URL}/health
+app-ready ${SYSTEM_TEST_APP_BASE_URL}/ready

@@ -13,6 +13,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CRAC_WORKFLOW = ROOT / ".github/workflows/crac-train.yml"
 COMPOSE_ACTION = ROOT / "actions/compose-system-test-stack/action.yml"
+COMPOSE_RUNNER = ROOT / "actions/compose-system-test-stack/run.sh"
+COMPOSE_ROUTES_FIXTURE = ROOT / "actions/compose-system-test-stack/fixtures/routes.example.txt"
+COMPOSE_STACK_FIXTURE = ROOT / "actions/compose-system-test-stack/fixtures/compose.stack.example.yml"
 README = ROOT / "README.md"
 
 
@@ -98,20 +101,216 @@ class CracTrainWorkflowTest(unittest.TestCase):
         self.assertIn('"sidecars": ["postgres", "valkey"]', self.readme)
         self.assertIn('"sidecars": "none"', self.readme)
 
-    def test_compose_action_is_design_first_placeholder(self) -> None:
+    def test_compose_action_is_working_composite_action(self) -> None:
         expected_inputs = [
             "compose-files",
             "services",
             "wait-strategy",
             "diagnostics-command",
             "migration-check-command",
-            "placeholder-ack",
+            "wait-timeout-seconds",
+            "wait-interval-seconds",
         ]
         for expected_input in expected_inputs:
             self.assertIn(f"  {expected_input}:", self.compose_action)
 
-        self.assertIn("design-first skeleton", self.compose_action)
-        self.assertIn('PLACEHOLDER_ACK: ${{ inputs.placeholder-ack }}', self.compose_action)
+        self.assertIn('run: bash "${{ github.action_path }}/run.sh"', self.compose_action)
+        self.assertNotIn("placeholder-ack", self.compose_action)
+        self.assertNotIn("design-first skeleton", self.compose_action)
+
+
+class ComposeSystemTestStackActionTest(unittest.TestCase):
+    def write_executable(self, path: Path, body: str) -> None:
+        path.write_text(textwrap.dedent(body), encoding="utf-8")
+        path.chmod(0o755)
+
+    def run_action(self, workdir: Path, env_overrides: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        bin_dir = workdir / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        command_log = workdir / "commands.log"
+        self.write_executable(
+            bin_dir / "docker",
+            """\
+            #!/usr/bin/env bash
+            printf 'docker' >> "$COMMAND_LOG"
+            printf ' <%s>' "$@" >> "$COMMAND_LOG"
+            printf '\\n' >> "$COMMAND_LOG"
+            if [ "${DOCKER_FAIL_UP:-false}" = "true" ] && [ "$1" = "compose" ]; then
+              for arg in "$@"; do
+                if [ "$arg" = "up" ]; then
+                  exit 23
+                fi
+              done
+            fi
+            exit 0
+            """,
+        )
+        self.write_executable(
+            bin_dir / "curl",
+            """\
+            #!/usr/bin/env bash
+            printf 'curl' >> "$COMMAND_LOG"
+            printf ' <%s>' "$@" >> "$COMMAND_LOG"
+            printf '\\n' >> "$COMMAND_LOG"
+            exit "${CURL_EXIT:-0}"
+            """,
+        )
+
+        env = os.environ.copy()
+        env.update(
+            {
+                "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}",
+                "COMMAND_LOG": str(command_log),
+                "WORKING_DIRECTORY": str(workdir),
+                "COMPOSE_FILES": "docker-compose.yml",
+                "SERVICES": "",
+                "PROJECT_NAME": "",
+                "WAIT_STRATEGY": "none",
+                "WAIT_COMMAND": "",
+                "WAIT_ROUTES_FILE": "",
+                "WAIT_TIMEOUT_SECONDS": "2",
+                "WAIT_INTERVAL_SECONDS": "1",
+                "MIGRATION_CHECK_COMMAND": "",
+                "DIAGNOSTICS_COMMAND": "",
+                "CLEANUP_COMMAND": "",
+                "UP_ARGS": "--no-build --wait --timeout 300 -d",
+                "DOWN_ON_COMPLETE": "true",
+            }
+        )
+        env.update(env_overrides)
+
+        return subprocess.run(
+            [str(COMPOSE_RUNNER)],
+            env=env,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    def test_runner_assembles_compose_files_project_and_services(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            workdir = Path(temp)
+            (workdir / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (workdir / "docker-compose.ci.yml").write_text("services: {}\n", encoding="utf-8")
+
+            result = self.run_action(
+                workdir,
+                {
+                    "COMPOSE_FILES": "docker-compose.yml\n# ignored\ndocker-compose.ci.yml\n",
+                    "PROJECT_NAME": "systemtest",
+                    "SERVICES": "api frontend db",
+                    "DOWN_ON_COMPLETE": "false",
+                },
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            log = (workdir / "commands.log").read_text(encoding="utf-8")
+            self.assertIn(
+                "docker <compose> <-p> <systemtest> <-f> <docker-compose.yml> <-f> <docker-compose.ci.yml> "
+                "<up> <--no-build> <--wait> <--timeout> <300> <-d> <api> <frontend> <db>",
+                log,
+            )
+            self.assertNotIn("<down>", log)
+
+    def test_runner_waits_for_routes_and_runs_migration_check(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            workdir = Path(temp)
+            (workdir / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+            (workdir / "routes.txt").write_text(
+                "# name url\napp-health http://example.invalid/health\nhttp://example.invalid/ready\n",
+                encoding="utf-8",
+            )
+
+            result = self.run_action(
+                workdir,
+                {
+                    "WAIT_STRATEGY": "routes",
+                    "WAIT_ROUTES_FILE": "routes.txt",
+                    "MIGRATION_CHECK_COMMAND": "printf 'migration-check\\n' >> \"$COMMAND_LOG\"",
+                    "DOWN_ON_COMPLETE": "false",
+                },
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            log = (workdir / "commands.log").read_text(encoding="utf-8")
+            self.assertIn("curl <-fsS> <-L> <-k> <--max-time> <5> <-o> </dev/null> <http://example.invalid/health>", log)
+            self.assertIn("curl <-fsS> <-L> <-k> <--max-time> <5> <-o> </dev/null> <http://example.invalid/ready>", log)
+            self.assertIn("migration-check", log)
+
+    def test_runner_adds_compose_wait_for_service_health_strategy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            workdir = Path(temp)
+            (workdir / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+
+            result = self.run_action(
+                workdir,
+                {
+                    "WAIT_STRATEGY": "services",
+                    "UP_ARGS": "--no-build -d",
+                    "DOWN_ON_COMPLETE": "false",
+                },
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            log = (workdir / "commands.log").read_text(encoding="utf-8")
+            self.assertIn("docker <compose> <-f> <docker-compose.yml> <up> <--no-build> <-d> <--wait>", log)
+
+    def test_runner_dumps_diagnostics_and_cleans_up_on_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            workdir = Path(temp)
+            (workdir / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+
+            result = self.run_action(
+                workdir,
+                {
+                    "MIGRATION_CHECK_COMMAND": "exit 17",
+                    "DIAGNOSTICS_COMMAND": "printf 'custom-diagnostics\\n' >> \"$COMMAND_LOG\"",
+                    "CLEANUP_COMMAND": "printf 'custom-cleanup\\n' >> \"$COMMAND_LOG\"",
+                },
+            )
+
+            self.assertEqual(result.returncode, 17)
+            log = (workdir / "commands.log").read_text(encoding="utf-8")
+            self.assertIn("docker <compose> <-f> <docker-compose.yml> <ps> <-a>", log)
+            self.assertIn("docker <compose> <-f> <docker-compose.yml> <logs> <--tail=200> <--no-color>", log)
+            self.assertIn("docker <ps> <-a>", log)
+            self.assertIn("docker <system> <df>", log)
+            self.assertIn("custom-diagnostics", log)
+            self.assertIn("custom-cleanup", log)
+            self.assertIn("docker <compose> <-f> <docker-compose.yml> <down> <--remove-orphans>", log)
+
+    def test_runner_validates_wait_strategy_and_required_route_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            workdir = Path(temp)
+            (workdir / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+
+            unsupported = self.run_action(workdir, {"WAIT_STRATEGY": "sleep"})
+            self.assertNotEqual(unsupported.returncode, 0)
+            self.assertIn("Unsupported wait-strategy: sleep", unsupported.stderr)
+
+            missing_routes = self.run_action(workdir, {"WAIT_STRATEGY": "routes"})
+            self.assertNotEqual(missing_routes.returncode, 0)
+            self.assertIn("wait-routes-file is required", missing_routes.stderr)
+
+    def test_compose_fixtures_are_generic_and_parameterized(self) -> None:
+        routes = COMPOSE_ROUTES_FIXTURE.read_text(encoding="utf-8")
+        compose = COMPOSE_STACK_FIXTURE.read_text(encoding="utf-8")
+        forbidden = [
+            "jorisjonkers",
+            "blueshell",
+            "127.0.0.1",
+            "auth-api",
+            "assistant-api",
+            "vault.jorisjonkers",
+        ]
+
+        for value in forbidden:
+            self.assertNotIn(value, routes)
+            self.assertNotIn(value, compose)
+
+        self.assertIn("${SYSTEM_TEST_APP_BASE_URL}", routes)
+        self.assertIn("${SYSTEM_TEST_APP_IMAGE", compose)
 
 
 if __name__ == "__main__":
