@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/ExtraToast/github-workflows/compare/v0.4.0...v0.5.0) (2026-06-10)
+
+
+### Features
+
+* GitHub Packages npm auth + reusable deploy-config render-drift ([#13](https://github.com/ExtraToast/github-workflows/issues/13)) ([48578c4](https://github.com/ExtraToast/github-workflows/commit/48578c429faa5cc8298126cc97ecd65ddc3d63ba))
+
 ## [0.4.0](https://github.com/ExtraToast/github-workflows/compare/v0.3.0...v0.4.0) (2026-06-10)
 
 
