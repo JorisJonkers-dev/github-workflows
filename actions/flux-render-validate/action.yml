@@ -1,0 +1,95 @@
+name: Flux Render Validate
+description: Install pinned render-validation tools and run platform-blueprints strict Flux render validation.
+
+inputs:
+  overlay-paths:
+    description: Newline- or comma-separated kustomize overlay paths to render and validate.
+    required: true
+  mode:
+    description: Validation mode. Supported values are strict and lenient.
+    required: false
+    default: strict
+  crd-catalog-source:
+    description: Repository containing scripts/validate-flux-render.sh and schemas/crds.
+    required: false
+    default: ExtraToast/platform-blueprints
+  crd-catalog-ref:
+    description: Git ref for crd-catalog-source.
+    required: false
+    default: main
+  working-directory:
+    description: Directory where overlay paths are evaluated.
+    required: false
+    default: .
+  kustomize-version:
+    description: Pinned kustomize version to install.
+    required: false
+    default: v5.7.1
+  flux-version:
+    description: Pinned Flux CLI version to install.
+    required: false
+    default: v2.5.1
+  kubeconform-version:
+    description: Pinned kubeconform version to install.
+    required: false
+    default: v0.6.7
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v6
+      with:
+        repository: ${{ inputs.crd-catalog-source }}
+        ref: ${{ inputs.crd-catalog-ref }}
+        path: .platform-blueprints-flux-render
+        persist-credentials: false
+
+    - name: Install pinned Flux render-validation tools
+      shell: bash
+      env:
+        KUSTOMIZE_VERSION: ${{ inputs.kustomize-version }}
+        FLUX_VERSION: ${{ inputs.flux-version }}
+        KUBECONFORM_VERSION: ${{ inputs.kubeconform-version }}
+      run: |
+        set -euo pipefail
+
+        install_root="${RUNNER_TEMP:-/tmp}/flux-render-tools"
+        mkdir -p "${install_root}/bin" "${install_root}/downloads"
+        export PATH="${install_root}/bin:${PATH}"
+
+        os="linux"
+        arch="amd64"
+
+        echo "::group::Install kustomize ${KUSTOMIZE_VERSION}"
+        curl -fsSL \
+          "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_${os}_${arch}.tar.gz" \
+          -o "${install_root}/downloads/kustomize.tar.gz"
+        tar -xzf "${install_root}/downloads/kustomize.tar.gz" -C "${install_root}/bin" kustomize
+        chmod +x "${install_root}/bin/kustomize"
+        echo "::endgroup::"
+
+        echo "::group::Install flux ${FLUX_VERSION}"
+        curl -fsSL \
+          "https://github.com/fluxcd/flux2/releases/download/${FLUX_VERSION}/flux_${FLUX_VERSION#v}_${os}_${arch}.tar.gz" \
+          -o "${install_root}/downloads/flux.tar.gz"
+        tar -xzf "${install_root}/downloads/flux.tar.gz" -C "${install_root}/bin" flux
+        chmod +x "${install_root}/bin/flux"
+        echo "::endgroup::"
+
+        echo "::group::Install kubeconform ${KUBECONFORM_VERSION}"
+        curl -fsSL \
+          "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-${os}-${arch}.tar.gz" \
+          -o "${install_root}/downloads/kubeconform.tar.gz"
+        tar -xzf "${install_root}/downloads/kubeconform.tar.gz" -C "${install_root}/bin" kubeconform
+        chmod +x "${install_root}/bin/kubeconform"
+        echo "::endgroup::"
+
+        printf '%s\n' "${install_root}/bin" >> "$GITHUB_PATH"
+
+    - name: Validate Flux render output
+      shell: bash
+      env:
+        OVERLAY_PATHS: ${{ inputs.overlay-paths }}
+        MODE: ${{ inputs.mode }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      run: bash "${{ github.action_path }}/run.sh"

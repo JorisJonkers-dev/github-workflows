@@ -1,0 +1,71 @@
+name: Flux Render Validate
+
+on:
+  workflow_call:
+    inputs:
+      overlay-paths:
+        description: Newline- or comma-separated kustomize overlay paths to render and validate.
+        required: true
+        type: string
+      mode:
+        description: Validation mode. Supported values are strict and lenient.
+        required: false
+        type: string
+        default: strict
+      crd-catalog-source:
+        description: Repository containing the CRD catalog and validation script.
+        required: false
+        type: string
+        default: ExtraToast/platform-blueprints
+      crd-catalog-ref:
+        description: Git ref for the CRD catalog and validation script.
+        required: false
+        type: string
+        default: main
+      working-directory:
+        description: Directory where overlay paths are evaluated.
+        required: false
+        type: string
+        default: .
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Flux Render Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve workflow ref
+        id: workflow-ref
+        shell: bash
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+
+          ref="${WORKFLOW_REF#*@}"
+          if [ -z "$ref" ] || [ "$ref" = "$WORKFLOW_REF" ]; then
+            echo "::error::Unable to resolve reusable workflow ref from $WORKFLOW_REF"
+            exit 1
+          fi
+
+          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        with:
+          repository: ExtraToast/github-workflows
+          ref: ${{ steps.workflow-ref.outputs.ref }}
+          path: .github-workflows
+          persist-credentials: false
+
+      - name: Strict Flux render validation
+        uses: ./.github-workflows/actions/flux-render-validate
+        with:
+          overlay-paths: ${{ inputs.overlay-paths }}
+          mode: ${{ inputs.mode }}
+          crd-catalog-source: ${{ inputs.crd-catalog-source }}
+          crd-catalog-ref: ${{ inputs.crd-catalog-ref }}
+          working-directory: ${{ inputs.working-directory }}
