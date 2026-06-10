@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/ExtraToast/github-workflows/compare/v0.3.0...v0.4.0) (2026-06-10)
+
+
+### Features
+
+* reusable flux-render-validate workflow + composite action (spec 009) ([#11](https://github.com/ExtraToast/github-workflows/issues/11)) ([cae8c61](https://github.com/ExtraToast/github-workflows/commit/cae8c61ee10701ded2509aa38f4a664f3a58049a))
+* reusable platform-config-validate workflow + action ([#10](https://github.com/ExtraToast/github-workflows/issues/10)) ([512033e](https://github.com/ExtraToast/github-workflows/commit/512033e7b4e2fc288243a42120ef2e112d7b98c1))
+
 ## [0.3.0](https://github.com/ExtraToast/github-workflows/compare/v0.2.0...v0.3.0) (2026-06-09)
 
 
