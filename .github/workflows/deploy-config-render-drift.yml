@@ -1,48 +1,39 @@
-name: Platform Config Validate
+name: Deploy Config Render Drift
 
 on:
   workflow_call:
     inputs:
-      config-paths:
-        description: Newline- or comma-separated file globs to validate.
-        required: false
-        type: string
-        default: |-
-          platform/**/*.yaml
-          platform/**/*.yml
-      schema-kind:
-        description: Schema kind to validate.
-        required: false
-        type: string
-        default: auto
       package-version:
         description: Version of @extratoast/deploy-config-schema to install.
         required: false
         type: string
-        default: 0.3.0
+        default: ^0.6.0
+      deploy-config-command:
+        description: Shell command that writes deploy-config JSON to DEPLOY_CONFIG_OUT.
+        required: true
+        type: string
+      targets:
+        description: Newline-separated adapter=relative/committed/path.yaml entries.
+        required: true
+        type: string
+      working-directory:
+        description: Directory where the deploy-config command runs and target paths are resolved.
+        required: false
+        type: string
+        default: .
       node-auth-token:
         description: Token with packages:read for installing @extratoast packages from GitHub Packages (pass secrets.GITHUB_TOKEN).
         required: false
         type: string
         default: ""
-      drift-check:
-        description: Run render-tree --check after validation when true.
-        required: false
-        type: boolean
-        default: false
-      working-directory:
-        description: Directory where config globs are evaluated.
-        required: false
-        type: string
-        default: .
 
 permissions:
   contents: read
   packages: read
 
 jobs:
-  validate:
-    name: Platform Config Validate
+  render-drift:
+    name: Deploy Config Render Drift
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -70,12 +61,11 @@ jobs:
           path: .github-workflows
           persist-credentials: false
 
-      - name: Validate platform config
-        uses: ./.github-workflows/actions/platform-config-validate
+      - name: Check deploy config render drift
+        uses: ./.github-workflows/actions/deploy-config-render-drift
         with:
-          config-paths: ${{ inputs.config-paths }}
-          schema-kind: ${{ inputs.schema-kind }}
           package-version: ${{ inputs.package-version }}
-          node-auth-token: ${{ inputs.node-auth-token != '' && inputs.node-auth-token || github.token }}
-          drift-check: ${{ inputs.drift-check && 'true' || 'false' }}
+          deploy-config-command: ${{ inputs.deploy-config-command }}
+          targets: ${{ inputs.targets }}
           working-directory: ${{ inputs.working-directory }}
+          node-auth-token: ${{ inputs.node-auth-token != '' && inputs.node-auth-token || github.token }}

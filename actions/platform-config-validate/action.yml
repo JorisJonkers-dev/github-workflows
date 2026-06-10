@@ -16,6 +16,10 @@ inputs:
     description: Version of @extratoast/deploy-config-schema to install.
     required: false
     default: 0.3.0
+  node-auth-token:
+    description: Token with packages:read for installing @extratoast packages from GitHub Packages (pass secrets.GITHUB_TOKEN).
+    required: false
+    default: ""
   drift-check:
     description: Run render-tree --check after validation when true.
     required: false
@@ -38,6 +42,7 @@ runs:
         CONFIG_PATHS: ${{ inputs.config-paths }}
         SCHEMA_KIND: ${{ inputs.schema-kind }}
         PACKAGE_VERSION: ${{ inputs.package-version }}
+        NODE_AUTH_TOKEN: ${{ inputs.node-auth-token }}
         DRIFT_CHECK: ${{ inputs.drift-check }}
         WORKING_DIRECTORY: ${{ inputs.working-directory }}
       run: bash "${{ github.action_path }}/run.sh"

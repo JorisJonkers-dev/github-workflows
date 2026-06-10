@@ -46,15 +46,23 @@ validate_schema_kind() {
 install_schema_cli() {
   local install_root="$1"
   local version="$2"
+  local npmrc="${install_root}/.npmrc"
 
   rm -rf "$install_root"
   mkdir -p "$install_root"
+  {
+    printf '%s\n' '@extratoast:registry=https://npm.pkg.github.com'
+    if [ -n "${NODE_AUTH_TOKEN:-}" ]; then
+      printf '%s\n' "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}"
+    fi
+    printf '%s\n' 'always-auth=true'
+  } > "$npmrc"
 
   echo "::group::Install @extratoast/deploy-config-schema@$version" >&2
   (
     cd "$install_root"
     npm init -y >/dev/null
-    npm install --no-audit --no-fund --save-exact "@extratoast/deploy-config-schema@$version" >&2
+    npm install --userconfig "$npmrc" --no-audit --no-fund --save-exact "@extratoast/deploy-config-schema@$version" >&2
   )
   echo "::endgroup::" >&2
 

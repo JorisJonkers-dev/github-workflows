@@ -1,0 +1,39 @@
+name: Deploy Config Render Drift
+description: Render deploy-config-schema adapter outputs and compare them with committed files.
+
+inputs:
+  package-version:
+    description: Version of @extratoast/deploy-config-schema to install.
+    required: false
+    default: ^0.6.0
+  deploy-config-command:
+    description: Shell command that writes deploy-config JSON to DEPLOY_CONFIG_OUT.
+    required: true
+  targets:
+    description: Newline-separated adapter=relative/committed/path.yaml entries.
+    required: true
+  working-directory:
+    description: Directory where the deploy-config command runs and target paths are resolved.
+    required: false
+    default: .
+  node-auth-token:
+    description: Token with packages:read for installing @extratoast packages from GitHub Packages (pass secrets.GITHUB_TOKEN).
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v6
+      with:
+        node-version: '24'
+
+    - name: Check deploy config render drift
+      shell: bash
+      env:
+        PACKAGE_VERSION: ${{ inputs.package-version }}
+        DEPLOY_CONFIG_COMMAND: ${{ inputs.deploy-config-command }}
+        TARGETS: ${{ inputs.targets }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        NODE_AUTH_TOKEN: ${{ inputs.node-auth-token }}
+      run: bash "${{ github.action_path }}/run.sh"

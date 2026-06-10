@@ -459,7 +459,8 @@ class PlatformConfigValidateSurfaceTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             log = (workdir / "commands.log").read_text(encoding="utf-8")
-            self.assertIn("npm <install> <--no-audit> <--no-fund> <--save-exact> <@extratoast/deploy-config-schema@9.8.7>", log)
+            self.assertIn("npm <install> <--userconfig>", log)
+            self.assertIn("<--no-audit> <--no-fund> <--save-exact> <@extratoast/deploy-config-schema@9.8.7>", log)
             self.assertIn(
                 "cli <validate> <platform> <platform/app.yml> <platform/cluster.yaml> <intents/api.yaml>",
                 log,
