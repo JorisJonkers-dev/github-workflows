@@ -259,6 +259,12 @@ const pkg = {
       import: './dist/index.js',
     },
   },
+  // Link the package to its (public) source repo so GitHub Packages inherits PUBLIC visibility
+  // and consuming repos can install it; without this it defaults to private -> cross-repo 403.
+  repository: {
+    type: 'git',
+    url: `git+https://github.com/${process.env.GITHUB_REPOSITORY || 'JorisJonkers-dev/api-clients'}.git`,
+  },
   publishConfig: {
     registry: process.env.NODE_REGISTRY_URL,
     access: 'public',
