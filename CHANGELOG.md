@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.6.1...v0.7.0) (2026-06-28)
+
+
+### Features
+
+* **clients:** add shared publish-api-clients reusable workflow + api-client-publish action ([#9](https://github.com/JorisJonkers-dev/github-workflows/issues/9)) ([96a2b65](https://github.com/JorisJonkers-dev/github-workflows/commit/96a2b650adae8a0f3fcef39262a63bd1fd3e7ab1))
+
 ## [0.6.1](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.6.0...v0.6.1) (2026-06-28)
 
 
