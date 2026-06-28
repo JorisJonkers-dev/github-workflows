@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.7.0...v0.7.1) (2026-06-28)
+
+
+### Bug Fixes
+
+* **clients:** use plain setup-node (no install in empty dir) ([#11](https://github.com/JorisJonkers-dev/github-workflows/issues/11)) ([bd9c029](https://github.com/JorisJonkers-dev/github-workflows/commit/bd9c0294ca7841fc74f3d043263522a44f8dbf91))
+
 ## [0.7.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.6.1...v0.7.0) (2026-06-28)
 
 
