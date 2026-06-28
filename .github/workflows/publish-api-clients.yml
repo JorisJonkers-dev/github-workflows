@@ -1,0 +1,118 @@
+name: Publish API Clients
+
+on:
+  workflow_call:
+    inputs:
+      spec-path:
+        required: true
+        type: string
+      api-name:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      ts-package:
+        required: true
+        type: string
+      maven-group:
+        required: true
+        type: string
+      java-artifact:
+        required: true
+        type: string
+      kotlin-artifact:
+        required: true
+        type: string
+      dry-run:
+        required: false
+        type: boolean
+        default: false
+      openapi-client-gradle-version:
+        required: false
+        type: string
+        default: "0.3.0"
+      node-version:
+        required: false
+        type: string
+        default: "24"
+      java-version:
+        required: false
+        type: string
+        default: "21"
+      npm-registry-url:
+        required: false
+        type: string
+        default: "https://npm.pkg.github.com"
+    secrets:
+      packages-token:
+        required: false
+      node-auth-token:
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  clients:
+    name: API Clients
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/checkout@v6
+        with:
+          repository: JorisJonkers-dev/github-workflows
+          ref: ${{ github.job_workflow_sha }}
+          path: .github-workflows
+          persist-credentials: false
+
+      - uses: ./.github-workflows/actions/setup-java-gradle
+        with:
+          java-version: ${{ inputs.java-version }}
+          github-packages-token: ${{ secrets.packages-token || github.token }}
+
+      - uses: ./.github-workflows/actions/setup-node
+        with:
+          node-version: ${{ inputs.node-version }}
+          package-manager: npm
+          install-command: "npm install --no-audit --no-fund"
+          working-directory: ${{ runner.temp }}/api-clients/typescript
+          github-packages-token: ${{ secrets.node-auth-token || secrets.packages-token || github.token }}
+
+      - name: Generate and verify all clients
+        uses: ./.github-workflows/actions/api-client-publish
+        with:
+          mode: dry-run
+          spec-path: ${{ inputs.spec-path }}
+          api-name: ${{ inputs.api-name }}
+          version: ${{ inputs.version }}
+          ts-package: ${{ inputs.ts-package }}
+          maven-group: ${{ inputs.maven-group }}
+          java-artifact: ${{ inputs.java-artifact }}
+          kotlin-artifact: ${{ inputs.kotlin-artifact }}
+          openapi-client-gradle-version: ${{ inputs.openapi-client-gradle-version }}
+          npm-registry-url: ${{ inputs.npm-registry-url }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.packages-token || github.token }}
+          NODE_AUTH_TOKEN: ${{ secrets.node-auth-token || secrets.packages-token || github.token }}
+
+      - name: Publish all clients
+        if: ${{ !inputs.dry-run }}
+        uses: ./.github-workflows/actions/api-client-publish
+        with:
+          mode: publish
+          spec-path: ${{ inputs.spec-path }}
+          api-name: ${{ inputs.api-name }}
+          version: ${{ inputs.version }}
+          ts-package: ${{ inputs.ts-package }}
+          maven-group: ${{ inputs.maven-group }}
+          java-artifact: ${{ inputs.java-artifact }}
+          kotlin-artifact: ${{ inputs.kotlin-artifact }}
+          openapi-client-gradle-version: ${{ inputs.openapi-client-gradle-version }}
+          npm-registry-url: ${{ inputs.npm-registry-url }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.packages-token || github.token }}
+          NODE_AUTH_TOKEN: ${{ secrets.node-auth-token || secrets.packages-token || github.token }}
