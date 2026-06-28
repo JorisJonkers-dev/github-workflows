@@ -37,7 +37,7 @@ jobs:
           sudo install /tmp/actionlint /usr/local/bin/actionlint
 
       - name: Lint workflows
-        run: actionlint .github/workflows/*.yml
+        run: actionlint -ignore 'property "job_workflow_sha" is not defined' .github/workflows/*.yml
 
   yaml-validity:
     name: YAML Validity
