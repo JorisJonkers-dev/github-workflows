@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.6.0...v0.6.1) (2026-06-28)
+
+
+### Bug Fixes
+
+* **reusable:** check out github-workflows at github.job_workflow_sha ([#7](https://github.com/JorisJonkers-dev/github-workflows/issues/7)) ([78a598a](https://github.com/JorisJonkers-dev/github-workflows/commit/78a598a5a69acb28269bf84554789bcb3c108113))
+
 ## [0.6.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.5.0...v0.6.0) (2026-06-28)
 
 
