@@ -221,6 +221,12 @@ publishing {
             }
         }
     }
+
+// Gradle 9 strict validation: sourcesJar/javadocJar package the generated OpenAPI sources,
+// so they must declare an explicit dependency on the generate task.
+tasks.matching { it.name == "sourcesJar" || it.name == "javadocJar" }.configureEach {
+    dependsOn("generate")
+}
 }
 GRADLE
 }
