@@ -1,0 +1,52 @@
+name: Publish API Clients
+description: Generate, verify, and publish Java, Kotlin, and TypeScript API clients from an OpenAPI spec.
+
+inputs:
+  mode:
+    description: Execution mode. Use dry-run or publish.
+    required: true
+  spec-path:
+    description: Path to the OpenAPI spec relative to GITHUB_WORKSPACE.
+    required: true
+  api-name:
+    description: API name used to derive generated package names.
+    required: true
+  version:
+    description: Client package version. A leading v is stripped.
+    required: true
+  ts-package:
+    description: npm package name for the generated TypeScript client.
+    required: true
+  maven-group:
+    description: Maven group ID for the generated JVM clients.
+    required: true
+  java-artifact:
+    description: Maven artifact ID for the generated Java client.
+    required: true
+  kotlin-artifact:
+    description: Maven artifact ID for the generated Kotlin client.
+    required: true
+  openapi-client-gradle-version:
+    description: Version of dev.jorisjonkers.openapi-client Gradle plugin to apply.
+    required: true
+  npm-registry-url:
+    description: npm registry URL used for publishConfig and authentication.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Generate, build, and publish clients
+      shell: bash
+      env:
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_SPEC_PATH: ${{ inputs.spec-path }}
+        INPUT_API_NAME: ${{ inputs.api-name }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_TS_PACKAGE: ${{ inputs.ts-package }}
+        INPUT_MAVEN_GROUP: ${{ inputs.maven-group }}
+        INPUT_JAVA_ARTIFACT: ${{ inputs.java-artifact }}
+        INPUT_KOTLIN_ARTIFACT: ${{ inputs.kotlin-artifact }}
+        INPUT_OPENAPI_CLIENT_GRADLE_VERSION: ${{ inputs.openapi-client-gradle-version }}
+        INPUT_NPM_REGISTRY_URL: ${{ inputs.npm-registry-url }}
+      run: "$GITHUB_ACTION_PATH/run.sh"
