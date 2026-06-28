@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.5.0...v0.6.0) (2026-06-28)
+
+
+### Features
+
+* **ci:** migrate reusable workflows to JorisJonkers-dev coordinates ([#3](https://github.com/JorisJonkers-dev/github-workflows/issues/3)) ([7d1b8f3](https://github.com/JorisJonkers-dev/github-workflows/commit/7d1b8f33c02bc8deed9b5f68cd5018365c61ac5d))
+
 ## [0.5.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.4.0...v0.5.0) (2026-06-10)
 
 
