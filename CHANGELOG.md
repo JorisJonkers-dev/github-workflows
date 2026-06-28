@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.3](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.7.2...v0.7.3) (2026-06-28)
+
+
+### Bug Fixes
+
+* **clients:** link npm package to its repo for public visibility ([#15](https://github.com/JorisJonkers-dev/github-workflows/issues/15)) ([8bccf4d](https://github.com/JorisJonkers-dev/github-workflows/commit/8bccf4d5d7a34d3e972c3d5930ccb0e59b15553a))
+
 ## [0.7.2](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.7.1...v0.7.2) (2026-06-28)
 
 
