@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       package-version:
-        description: Version of @extratoast/deploy-config-schema to install.
+        description: Version of @jorisjonkers-dev/deploy-config-schema to install.
         required: false
         type: string
         default: ^0.6.0
@@ -22,7 +22,7 @@ on:
         type: string
         default: .
       node-auth-token:
-        description: Token with packages:read for installing @extratoast packages from GitHub Packages (pass secrets.GITHUB_TOKEN).
+        description: Token with packages:read for installing @jorisjonkers-dev packages from GitHub Packages (pass secrets.GITHUB_TOKEN).
         required: false
         type: string
         default: ""
@@ -56,7 +56,7 @@ jobs:
 
       - uses: actions/checkout@v6
         with:
-          repository: ExtraToast/github-workflows
+          repository: JorisJonkers-dev/github-workflows
           ref: ${{ steps.workflow-ref.outputs.ref }}
           path: .github-workflows
           persist-credentials: false

@@ -3,7 +3,7 @@ description: Render deploy-config-schema adapter outputs and compare them with c
 
 inputs:
   package-version:
-    description: Version of @extratoast/deploy-config-schema to install.
+    description: Version of @jorisjonkers-dev/deploy-config-schema to install.
     required: false
     default: ^0.6.0
   deploy-config-command:
@@ -17,7 +17,7 @@ inputs:
     required: false
     default: .
   node-auth-token:
-    description: Token with packages:read for installing @extratoast packages from GitHub Packages (pass secrets.GITHUB_TOKEN).
+    description: Token with packages:read for installing @jorisjonkers-dev packages from GitHub Packages (pass secrets.GITHUB_TOKEN).
     required: false
     default: ""
 

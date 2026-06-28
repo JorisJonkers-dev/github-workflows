@@ -1,0 +1,95 @@
+name: GitOps CI
+
+on:
+  workflow_call:
+    inputs:
+      overlay-paths:
+        description: Newline- or comma-separated kustomize overlay paths to render and validate.
+        required: true
+        type: string
+      platform-config-paths:
+        description: Newline- or comma-separated platform config globs to validate.
+        required: false
+        type: string
+        default: |-
+          inventory/**/*.yaml
+          inventory/**/*.yml
+      deploy-config-command:
+        description: Optional command that writes deploy-config JSON to DEPLOY_CONFIG_OUT.
+        required: false
+        type: string
+        default: ''
+      deploy-config-targets:
+        description: Optional newline-separated adapter=relative/committed/path.yaml render drift targets.
+        required: false
+        type: string
+        default: ''
+      system-tests-command:
+        description: Optional caller-owned system test command.
+        required: false
+        type: string
+        default: ''
+    secrets:
+      packages-token:
+        description: GitHub Packages token used for deploy-config-schema package resolution.
+        required: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  gitops:
+    name: GitOps CI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve workflow ref
+        id: workflow-ref
+        shell: bash
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+
+          ref="${WORKFLOW_REF#*@}"
+          if [ -z "$ref" ] || [ "$ref" = "$WORKFLOW_REF" ]; then
+            echo "::error::Unable to resolve reusable workflow ref from $WORKFLOW_REF"
+            exit 1
+          fi
+
+          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        with:
+          repository: JorisJonkers-dev/github-workflows
+          ref: ${{ steps.workflow-ref.outputs.ref }}
+          path: .github-workflows
+          persist-credentials: false
+
+      - name: Validate platform config
+        uses: ./.github-workflows/actions/platform-config-validate
+        with:
+          config-paths: ${{ inputs.platform-config-paths }}
+          schema-kind: auto
+          node-auth-token: ${{ secrets.packages-token || github.token }}
+
+      - name: Validate Flux render
+        uses: ./.github-workflows/actions/flux-render-validate
+        with:
+          overlay-paths: ${{ inputs.overlay-paths }}
+
+      - name: Check deploy config render drift
+        if: ${{ inputs.deploy-config-command != '' && inputs.deploy-config-targets != '' }}
+        uses: ./.github-workflows/actions/deploy-config-render-drift
+        with:
+          deploy-config-command: ${{ inputs.deploy-config-command }}
+          targets: ${{ inputs.deploy-config-targets }}
+          node-auth-token: ${{ secrets.packages-token || github.token }}
+
+      - name: Run system tests
+        if: ${{ inputs.system-tests-command != '' }}
+        env:
+          SYSTEM_TESTS_COMMAND: ${{ inputs.system-tests-command }}
+        run: bash -euo pipefail -c "$SYSTEM_TESTS_COMMAND"

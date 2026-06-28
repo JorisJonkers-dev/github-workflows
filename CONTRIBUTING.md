@@ -1,6 +1,6 @@
-# Contributing (ExtraToast conventions)
+# Contributing (JorisJonkers-dev conventions)
 
-These conventions are identical across every ExtraToast repo. This repo is the
+These conventions are identical across every JorisJonkers-dev repo. This repo is the
 template; new repos are bootstrapped from it (see `docs/REPO_SETUP.md`).
 
 ## Branch & PR flow

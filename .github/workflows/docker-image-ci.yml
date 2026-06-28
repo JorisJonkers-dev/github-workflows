@@ -1,0 +1,79 @@
+name: Docker Image CI
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        description: Image name below ghcr.io/<owner>/.
+        required: true
+        type: string
+      context:
+        description: Docker build context.
+        required: false
+        type: string
+        default: .
+      dockerfile:
+        description: Dockerfile path.
+        required: false
+        type: string
+        default: Dockerfile
+      target:
+        description: Optional Dockerfile target.
+        required: false
+        type: string
+        default: ''
+      build-args:
+        description: Optional docker build args, one per line.
+        required: false
+        type: string
+        default: ''
+    secrets:
+      packages-token:
+        description: Token passed as docker build secret github_token.
+        required: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  build:
+    name: Docker Image CI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Resolve image reference
+        id: image
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ inputs.image-name }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+
+          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          image_ref="ghcr.io/${owner}/${IMAGE_NAME}"
+          if [ "$image_ref" != "$(printf '%s' "$image_ref" | tr '[:upper:]' '[:lower:]')" ]; then
+            echo "::error::Docker image reference must be lowercase: $image_ref"
+            exit 1
+          fi
+
+          printf 'tag=%s:ci-%s\n' "$image_ref" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          target: ${{ inputs.target }}
+          build-args: ${{ inputs.build-args }}
+          push: false
+          tags: ${{ steps.image.outputs.tag }}
+          cache-from: type=gha,scope=${{ inputs.image-name }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.image-name }}
+          secrets: |
+            github_token=${{ secrets.packages-token || github.token }}
+            github_actor=${{ github.actor }}

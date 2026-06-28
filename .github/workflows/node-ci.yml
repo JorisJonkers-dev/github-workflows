@@ -1,0 +1,131 @@
+name: Node CI
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js version to install.
+        required: false
+        type: string
+        default: '24'
+      package-manager:
+        description: Package manager to configure. Supported values are npm, pnpm, and yarn.
+        required: false
+        type: string
+        default: pnpm
+      working-directory:
+        description: Directory that contains the Node package.
+        required: false
+        type: string
+        default: .
+      install-command:
+        description: Dependency install command. Empty uses the setup-node action default for the package manager.
+        required: false
+        type: string
+        default: ''
+      lint-command:
+        description: Optional lint command.
+        required: false
+        type: string
+        default: ''
+      typecheck-command:
+        description: Optional typecheck command.
+        required: false
+        type: string
+        default: ''
+      test-command:
+        description: Optional test command.
+        required: false
+        type: string
+        default: ''
+      build-command:
+        description: Optional build command.
+        required: false
+        type: string
+        default: ''
+      package-check-command:
+        description: Optional package validation command.
+        required: false
+        type: string
+        default: ''
+    secrets:
+      packages-token:
+        description: GitHub Packages token used for npm package resolution.
+        required: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  node:
+    name: Node CI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve workflow ref
+        id: workflow-ref
+        shell: bash
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+
+          ref="${WORKFLOW_REF#*@}"
+          if [ -z "$ref" ] || [ "$ref" = "$WORKFLOW_REF" ]; then
+            echo "::error::Unable to resolve reusable workflow ref from $WORKFLOW_REF"
+            exit 1
+          fi
+
+          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        with:
+          repository: JorisJonkers-dev/github-workflows
+          ref: ${{ steps.workflow-ref.outputs.ref }}
+          path: .github-workflows
+          persist-credentials: false
+
+      - uses: ./.github-workflows/actions/setup-node
+        with:
+          node-version: ${{ inputs.node-version }}
+          package-manager: ${{ inputs.package-manager }}
+          working-directory: ${{ inputs.working-directory }}
+          install-command: ${{ inputs.install-command }}
+          github-packages-token: ${{ secrets.packages-token || github.token }}
+
+      - name: Package check
+        if: ${{ inputs.package-check-command != '' }}
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          PACKAGE_CHECK_COMMAND: ${{ inputs.package-check-command }}
+        run: bash -euo pipefail -c "$PACKAGE_CHECK_COMMAND"
+
+      - name: Lint
+        if: ${{ inputs.lint-command != '' }}
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          LINT_COMMAND: ${{ inputs.lint-command }}
+        run: bash -euo pipefail -c "$LINT_COMMAND"
+
+      - name: Typecheck
+        if: ${{ inputs.typecheck-command != '' }}
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          TYPECHECK_COMMAND: ${{ inputs.typecheck-command }}
+        run: bash -euo pipefail -c "$TYPECHECK_COMMAND"
+
+      - name: Test
+        if: ${{ inputs.test-command != '' }}
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          TEST_COMMAND: ${{ inputs.test-command }}
+        run: bash -euo pipefail -c "$TEST_COMMAND"
+
+      - name: Build
+        if: ${{ inputs.build-command != '' }}
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          BUILD_COMMAND: ${{ inputs.build-command }}
+        run: bash -euo pipefail -c "$BUILD_COMMAND"

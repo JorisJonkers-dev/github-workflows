@@ -1,6 +1,6 @@
 # github-workflows
 
-Reusable ExtraToast composite actions and workflows live here. Consumer
+Reusable JorisJonkers-dev composite actions and workflows live here. Consumer
 repositories should call them with immutable release tags, not branches.
 Renovate keeps those pins current.
 
@@ -14,7 +14,7 @@ a repository-provided dev DNS setup script.
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: ExtraToast/github-workflows/actions/prepare-ci-host@v0.2.0
+  - uses: JorisJonkers-dev/github-workflows/actions/prepare-ci-host@v0.6.0
     with:
       artifact-pattern: image-*
       artifact-path: /tmp/images
@@ -42,7 +42,7 @@ Installs Java and configures Gradle dependency caching.
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: ExtraToast/github-workflows/actions/setup-java-gradle@v0.2.0
+  - uses: JorisJonkers-dev/github-workflows/actions/setup-java-gradle@v0.6.0
     with:
       java-version: '21'
       java-distribution: temurin
@@ -63,12 +63,12 @@ Inputs:
 ### `setup-node`
 
 Installs Node, configures package-manager caching, and installs dependencies.
-The package manager may be `pnpm` or Yarn Berry.
+The package manager may be npm, pnpm, or Yarn Berry.
 
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: ExtraToast/github-workflows/actions/setup-node@v0.2.0
+  - uses: JorisJonkers-dev/github-workflows/actions/setup-node@v0.6.0
     with:
       node-version: '24'
       package-manager: pnpm
@@ -81,7 +81,7 @@ Yarn example:
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: ExtraToast/github-workflows/actions/setup-node@v0.2.0
+  - uses: JorisJonkers-dev/github-workflows/actions/setup-node@v0.6.0
     with:
       node-version: '24'
       package-manager: yarn
@@ -94,23 +94,23 @@ Inputs:
 | Name | Default | Purpose |
 | --- | --- | --- |
 | `node-version` | `24` | Node.js version installed by `actions/setup-node`. |
-| `package-manager` | `pnpm` | Package manager to configure. Supported values: `pnpm`, `yarn`. |
+| `package-manager` | `pnpm` | Package manager to configure. Supported values: `npm`, `pnpm`, `yarn`. |
 | `cache-dependency-path` | empty | Lockfile path or paths used for dependency caching. |
 | `working-directory` | `.` | Directory where dependencies are installed. |
 | `install-command` | empty | Overrides the install command. Empty uses `pnpm install --frozen-lockfile` or `yarn install --immutable`. |
 | `github-packages-token` | empty | GitHub Packages token used to write project `.npmrc` auth and export `NODE_AUTH_TOKEN`. |
-| `npm-scope` | `@extratoast` | npm scope resolved from GitHub Packages when `github-packages-token` is set. |
+| `npm-scope` | `@jorisjonkers-dev` | npm scope resolved from GitHub Packages when `github-packages-token` is set. |
 | `github-packages-registry` | `https://npm.pkg.github.com` | npm registry URL used for the configured GitHub Packages scope. |
 
 ### `platform-config-validate`
 
-Installs a pinned `@extratoast/deploy-config-schema` package, validates caller
+Installs a pinned `@jorisjonkers-dev/deploy-config-schema` package, validates caller
 YAML configs, and can run `render-tree --check` to catch rendered-tree drift.
 
 ```yaml
 steps:
   - uses: actions/checkout@v6
-  - uses: ExtraToast/github-workflows/actions/platform-config-validate@v0.5.0
+  - uses: JorisJonkers-dev/github-workflows/actions/platform-config-validate@v0.6.0
     with:
       config-paths: |-
         platform/**/*.yaml
@@ -126,7 +126,7 @@ Inputs:
 | --- | --- | --- |
 | `config-paths` | `platform/**/*.yaml`, `platform/**/*.yml` | Newline- or comma-separated file globs to validate. |
 | `schema-kind` | `auto` | Schema kind: `platform`, `deploy-config`, `service-intent`, `fleet-inventory`, `vault-dynamic-secrets`, or `auto`. |
-| `package-version` | `0.3.0` | Version of `@extratoast/deploy-config-schema` to install. |
+| `package-version` | `0.3.0` | Version of `@jorisjonkers-dev/deploy-config-schema` to install. |
 | `drift-check` | `false` | Runs `render-tree --check` after validation when set to `true`. |
 | `working-directory` | `.` | Directory where config globs are evaluated. |
 
@@ -140,7 +140,7 @@ migration assertions, and hook commands stay in the consumer repository.
 ```yaml
 steps:
   - uses: actions/checkout@v6
-  - uses: ExtraToast/github-workflows/actions/compose-system-test-stack@v0.4.0
+  - uses: JorisJonkers-dev/github-workflows/actions/compose-system-test-stack@v0.6.0
     with:
       compose-files: |-
         docker-compose.yml
@@ -181,6 +181,93 @@ Inputs:
 
 ## Reusable workflows
 
+### `node-ci.yml`
+
+Runs dependency install plus optional package, lint, typecheck, test, and build
+commands for Node repositories.
+
+```yaml
+jobs:
+  node-ci:
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/node-ci.yml@v0.6.0
+    with:
+      package-manager: pnpm
+      lint-command: pnpm lint
+      typecheck-command: pnpm typecheck
+      test-command: pnpm test
+      build-command: pnpm build
+    secrets:
+      packages-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+### `python-ci.yml`
+
+Runs standard Python install, lint, and test commands. Each command can be
+overridden or disabled with an empty string.
+
+```yaml
+jobs:
+  python-ci:
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/python-ci.yml@v0.6.0
+```
+
+### `nix-ci.yml`
+
+Installs Nix and runs a flake check plus an optional validation command.
+
+```yaml
+jobs:
+  nix-ci:
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/nix-ci.yml@v0.6.0
+```
+
+### `docker-image-ci.yml`
+
+Builds a Docker image without publishing it.
+
+```yaml
+jobs:
+  image-ci:
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/docker-image-ci.yml@v0.6.0
+    with:
+      image-name: example-api
+      context: .
+      dockerfile: services/example-api/Dockerfile
+```
+
+### `container-publish.yml`
+
+Builds and publishes a GHCR image tagged only with the release version and
+`sha-${GITHUB_SHA}`.
+
+```yaml
+jobs:
+  publish:
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/container-publish.yml@v0.6.0
+    with:
+      image-name: example-api
+      version: ${{ needs.release.outputs.version }}
+```
+
+### `gitops-ci.yml`
+
+Runs platform config validation, Flux render validation, optional deploy-config
+render drift, and optional caller-owned system tests.
+
+```yaml
+jobs:
+  gitops-ci:
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/gitops-ci.yml@v0.6.0
+    with:
+      overlay-paths: |-
+        clusters/production
+      platform-config-paths: |-
+        inventory/**/*.yaml
+        inventory/**/*.yml
+    secrets:
+      packages-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
 ### `platform-config-validate.yml`
 
 Validates platform YAML from any consumer repository with one reusable workflow
@@ -190,7 +277,7 @@ standard validation job.
 ```yaml
 jobs:
   platform-config:
-    uses: ExtraToast/github-workflows/.github/workflows/platform-config-validate.yml@v0.5.0
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/platform-config-validate.yml@v0.6.0
     with:
       config-paths: |-
         platform/**/*.yaml
@@ -206,7 +293,7 @@ Inputs:
 | --- | --- | --- |
 | `config-paths` | `platform/**/*.yaml`, `platform/**/*.yml` | Newline- or comma-separated file globs to validate. |
 | `schema-kind` | `auto` | Schema kind: `platform`, `deploy-config`, `service-intent`, `fleet-inventory`, `vault-dynamic-secrets`, or `auto`. |
-| `package-version` | `0.3.0` | Version of `@extratoast/deploy-config-schema` to install. |
+| `package-version` | `0.3.0` | Version of `@jorisjonkers-dev/deploy-config-schema` to install. |
 | `drift-check` | `false` | Runs `render-tree --check` after validation when set to `true`. |
 | `working-directory` | `.` | Directory where config globs are evaluated. |
 
@@ -219,7 +306,7 @@ greater than the base branch maximum for the same service.
 ```yaml
 jobs:
   migration-guard:
-    uses: ExtraToast/github-workflows/.github/workflows/migration-guard.yml@v0.3.0
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/migration-guard.yml@v0.6.0
     with:
       migration-regex: 'services/[^/]+/src/main/resources/db/migration(-pg)?/V[0-9][^/]*\.sql$'
       scope-regex: '(services/[^/]+)/.*'
@@ -246,7 +333,7 @@ sidecars.
 ```yaml
 jobs:
   crac-train:
-    uses: ExtraToast/github-workflows/.github/workflows/crac-train.yml@v0.3.0
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/crac-train.yml@v0.6.0
     with:
       service-matrix: >-
         [
@@ -310,7 +397,7 @@ assertions, and mutation behavior stay in the caller repository.
 ```yaml
 jobs:
   production-canary:
-    uses: ExtraToast/github-workflows/.github/workflows/production-canary.yml@v0.3.0
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/production-canary.yml@v0.6.0
     with:
       enabled: ${{ vars.PROD_CANARY_ENABLED == 'true' }}
       post-push-delay-seconds: 180
@@ -342,7 +429,7 @@ Runs generic Gradle lint and test jobs for JVM repositories.
 ```yaml
 jobs:
   jvm-ci:
-    uses: ExtraToast/github-workflows/.github/workflows/jvm-ci.yml@v0.2.0
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/jvm-ci.yml@v0.6.0
     with:
       java-version: '21'
       gradle-args: --no-daemon --stacktrace

@@ -76,7 +76,7 @@ jobs:
 
       - uses: actions/checkout@v6
         with:
-          repository: ExtraToast/github-workflows
+          repository: JorisJonkers-dev/github-workflows
           ref: ${{ steps.workflow-ref.outputs.ref }}
           path: .github-workflows
           persist-credentials: false
@@ -115,7 +115,7 @@ jobs:
 
       - uses: actions/checkout@v6
         with:
-          repository: ExtraToast/github-workflows
+          repository: JorisJonkers-dev/github-workflows
           ref: ${{ steps.workflow-ref.outputs.ref }}
           path: .github-workflows
           persist-credentials: false

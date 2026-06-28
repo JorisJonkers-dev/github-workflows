@@ -12,7 +12,7 @@ inputs:
   crd-catalog-source:
     description: Repository containing scripts/validate-flux-render.sh and schemas/crds.
     required: false
-    default: ExtraToast/platform-blueprints
+    default: JorisJonkers-dev/platform-blueprints
   crd-catalog-ref:
     description: Git ref for crd-catalog-source.
     required: false

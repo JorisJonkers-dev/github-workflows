@@ -1,4 +1,4 @@
-# Canonical single CI workflow for every ExtraToast repository.
+# Canonical single CI workflow for every JorisJonkers-dev repository.
 #
 # Org convention: ONE pipeline per repo, and it terminates in a single
 # aggregating job named "Pipeline Complete". That job name is the ONLY

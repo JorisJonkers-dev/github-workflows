@@ -1,6 +1,6 @@
 # Versioning & release
 
-Every ExtraToast repo is versioned and released the same way. Nothing resolves
+Every JorisJonkers-dev repo is versioned and released the same way. Nothing resolves
 or deploys from a moving branch — `main` is an integration branch, not a
 deploy target.
 
@@ -11,12 +11,12 @@ deploy target.
 2. `release.yml` (release-please) maintains a release PR. Merging it tags
    `vX.Y.Z`, writes `CHANGELOG.md`, and bumps `.release-please-manifest.json`.
 3. The published-release event publishes artifacts at that exact version:
-   - Maven libraries/plugins → GitHub Packages under `dev.extratoast.*`
-   - npm packages → GitHub Packages under `@extratoast/*`
-   - container images → `ghcr.io/extratoast/<repo>/<image>:X.Y.Z`
+   - Maven libraries/plugins → GitHub Packages under `dev.jorisjonkers.*`
+   - npm packages → GitHub Packages under `@jorisjonkers-dev/*`
+   - container images → `ghcr.io/jorisjonkers-dev/<repo>/<image>:X.Y.Z`
 
 SemVer: pre-1.0 (`0.y.z`) treats minor as the breaking lever
-(`bump-minor-pre-major`). Promote to `1.0.0` once an artifact's API is stable.
+(`bump-minor-pre-major`). Promote to `1.6.0` once an artifact's API is stable.
 
 ## Consuming shared artifacts (exact pins, no ranges)
 
@@ -24,15 +24,15 @@ SemVer: pre-1.0 (`0.y.z`) treats minor as the breaking lever
   them via the catalog. Example:
   ```toml
   [versions]
-  extratoast-kotlin-commons = "0.3.1"
+  jorisjonkers-kotlin-commons = "0.3.1"
   [libraries]
-  extratoast-command = { module = "dev.extratoast.kotlin-commons:command", version.ref = "extratoast-kotlin-commons" }
+  jorisjonkers-command = { module = "dev.jorisjonkers.kotlin-commons:command", version.ref = "jorisjonkers-kotlin-commons" }
   ```
 - **npm**: pin exact versions in the manifest (no `^`/`~`).
 - **GitHub Actions / reusable workflows**: pin to a release tag (and digest via
-  Renovate), e.g. `uses: ExtraToast/github-workflows/.github/workflows/jvm-ci.yml@v1.2.0`.
+  Renovate), e.g. `uses: JorisJonkers-dev/github-workflows/.github/workflows/jvm-ci.yml@v0.6.0`.
 
-[Renovate](renovate.json) opens exact-version bump PRs (ExtraToast artifacts
+[Renovate](renovate.json) opens exact-version bump PRs (JorisJonkers-dev artifacts
 grouped into one platform bump). Every bump PR must pass `Pipeline Complete`
 before merge.
 
