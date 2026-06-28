@@ -74,13 +74,12 @@ jobs:
           java-version: ${{ inputs.java-version }}
           github-packages-token: ${{ secrets.packages-token || github.token }}
 
-      - uses: ./.github-workflows/actions/setup-node
+      # Install Node + configure the GitHub Packages registry only. Do NOT install here —
+      # the typescript project is created by api-client-publish, which runs npm install itself.
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
-          package-manager: npm
-          install-command: "npm install --no-audit --no-fund"
-          working-directory: ${{ runner.temp }}/api-clients/typescript
-          github-packages-token: ${{ secrets.node-auth-token || secrets.packages-token || github.token }}
+          registry-url: ${{ inputs.npm-registry-url }}
 
       - name: Generate and verify all clients
         uses: ./.github-workflows/actions/api-client-publish
