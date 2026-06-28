@@ -1,5 +1,5 @@
 name: Platform Config Validate
-description: Validate platform YAML with @extratoast/deploy-config-schema and optionally check rendered-tree drift.
+description: Validate platform YAML with @jorisjonkers-dev/deploy-config-schema and optionally check rendered-tree drift.
 
 inputs:
   config-paths:
@@ -13,11 +13,11 @@ inputs:
     required: false
     default: auto
   package-version:
-    description: Version of @extratoast/deploy-config-schema to install.
+    description: Version of @jorisjonkers-dev/deploy-config-schema to install.
     required: false
     default: 0.3.0
   node-auth-token:
-    description: Token with packages:read for installing @extratoast packages from GitHub Packages (pass secrets.GITHUB_TOKEN).
+    description: Token with packages:read for installing @jorisjonkers-dev packages from GitHub Packages (pass secrets.GITHUB_TOKEN).
     required: false
     default: ""
   drift-check:

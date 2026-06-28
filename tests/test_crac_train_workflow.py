@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -14,6 +15,12 @@ ROOT = Path(__file__).resolve().parents[1]
 CRAC_WORKFLOW = ROOT / ".github/workflows/crac-train.yml"
 CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
 PLATFORM_CONFIG_WORKFLOW = ROOT / ".github/workflows/platform-config-validate.yml"
+NODE_CI_WORKFLOW = ROOT / ".github/workflows/node-ci.yml"
+PYTHON_CI_WORKFLOW = ROOT / ".github/workflows/python-ci.yml"
+NIX_CI_WORKFLOW = ROOT / ".github/workflows/nix-ci.yml"
+DOCKER_IMAGE_CI_WORKFLOW = ROOT / ".github/workflows/docker-image-ci.yml"
+CONTAINER_PUBLISH_WORKFLOW = ROOT / ".github/workflows/container-publish.yml"
+GITOPS_CI_WORKFLOW = ROOT / ".github/workflows/gitops-ci.yml"
 COMPOSE_ACTION = ROOT / "actions/compose-system-test-stack/action.yml"
 COMPOSE_RUNNER = ROOT / "actions/compose-system-test-stack/run.sh"
 COMPOSE_ROUTES_FIXTURE = ROOT / "actions/compose-system-test-stack/fixtures/routes.example.txt"
@@ -22,6 +29,9 @@ PLATFORM_CONFIG_ACTION = ROOT / "actions/platform-config-validate/action.yml"
 PLATFORM_CONFIG_RUNNER = ROOT / "actions/platform-config-validate/run.sh"
 PLATFORM_CONFIG_PLATFORM_FIXTURE = ROOT / "actions/platform-config-validate/fixtures/platform.example.yml"
 PLATFORM_CONFIG_SERVICE_FIXTURE = ROOT / "actions/platform-config-validate/fixtures/service-intent.example.yml"
+SETUP_NODE_ACTION = ROOT / "actions/setup-node/action.yml"
+RENOVATE_CONFIG = ROOT / "renovate.json"
+RELEASE_CONFIG = ROOT / "release-please-config.json"
 README = ROOT / "README.md"
 
 
@@ -348,7 +358,7 @@ class PlatformConfigValidateSurfaceTest(unittest.TestCase):
                 printf '{}\\n' > package.json
                 ;;
               install)
-                package_dir="node_modules/@extratoast/deploy-config-schema"
+                package_dir="node_modules/@jorisjonkers-dev/deploy-config-schema"
                 mkdir -p "$package_dir"
                 cat > "$package_dir/package.json" <<'JSON'
             {"bin":{"deploy-config-schema":"cli.js"}}
@@ -424,7 +434,7 @@ class PlatformConfigValidateSurfaceTest(unittest.TestCase):
 
         self.assertIn("on:\n  workflow_call:", self.workflow)
         self.assertIn("uses: ./.github-workflows/actions/platform-config-validate", self.workflow)
-        self.assertIn("repository: ExtraToast/github-workflows", self.workflow)
+        self.assertIn("repository: JorisJonkers-dev/github-workflows", self.workflow)
         self.assertIn("actions/setup-node@v6", self.action)
         self.assertIn('run: bash "${{ github.action_path }}/run.sh"', self.action)
 
@@ -460,7 +470,7 @@ class PlatformConfigValidateSurfaceTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             log = (workdir / "commands.log").read_text(encoding="utf-8")
             self.assertIn("npm <install> <--userconfig>", log)
-            self.assertIn("<--no-audit> <--no-fund> <--save-exact> <@extratoast/deploy-config-schema@9.8.7>", log)
+            self.assertIn("<--no-audit> <--no-fund> <--save-exact> <@jorisjonkers-dev/deploy-config-schema@9.8.7>", log)
             self.assertIn(
                 "cli <validate> <platform> <platform/app.yml> <platform/cluster.yaml> <intents/api.yaml>",
                 log,
@@ -494,13 +504,98 @@ class PlatformConfigValidateSurfaceTest(unittest.TestCase):
         self.assertIn("name: example-platform", platform_fixture)
         self.assertIn("api-service:", service_fixture)
         self.assertIn("platform-config-validate.yml", self.readme)
-        self.assertIn("ExtraToast/github-workflows/.github/workflows/platform-config-validate.yml", self.readme)
-        self.assertIn("@extratoast/deploy-config-schema", self.readme)
+        self.assertIn("JorisJonkers-dev/github-workflows/.github/workflows/platform-config-validate.yml", self.readme)
+        self.assertIn("@jorisjonkers-dev/deploy-config-schema", self.readme)
 
     def test_ci_uses_official_actionlint_download_script(self) -> None:
         self.assertIn("download-actionlint.bash", self.ci)
         self.assertIn("raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash", self.ci)
         self.assertNotIn("rhysd/actionlint@v1", self.ci)
+
+
+class MigrationReusableWorkflowSurfaceTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.node_ci = NODE_CI_WORKFLOW.read_text(encoding="utf-8")
+        cls.python_ci = PYTHON_CI_WORKFLOW.read_text(encoding="utf-8")
+        cls.nix_ci = NIX_CI_WORKFLOW.read_text(encoding="utf-8")
+        cls.docker_image_ci = DOCKER_IMAGE_CI_WORKFLOW.read_text(encoding="utf-8")
+        cls.container_publish = CONTAINER_PUBLISH_WORKFLOW.read_text(encoding="utf-8")
+        cls.gitops_ci = GITOPS_CI_WORKFLOW.read_text(encoding="utf-8")
+        cls.setup_node = SETUP_NODE_ACTION.read_text(encoding="utf-8")
+        cls.readme = README.read_text(encoding="utf-8")
+
+    def test_new_reusable_workflows_are_documented_at_v0_6_0(self) -> None:
+        for workflow in [
+            "node-ci.yml",
+            "python-ci.yml",
+            "nix-ci.yml",
+            "docker-image-ci.yml",
+            "container-publish.yml",
+            "gitops-ci.yml",
+        ]:
+            self.assertTrue((ROOT / f".github/workflows/{workflow}").is_file())
+            self.assertIn(
+                f"JorisJonkers-dev/github-workflows/.github/workflows/{workflow}@v0.6.0",
+                self.readme,
+            )
+
+    def test_node_ci_uses_setup_node_and_setup_node_supports_npm(self) -> None:
+        for expected_input in [
+            "node-version",
+            "package-manager",
+            "working-directory",
+            "install-command",
+            "lint-command",
+            "typecheck-command",
+            "test-command",
+            "build-command",
+            "package-check-command",
+        ]:
+            self.assertIn(f"      {expected_input}:", self.node_ci)
+
+        self.assertIn("uses: ./.github-workflows/actions/setup-node", self.node_ci)
+        self.assertIn("repository: JorisJonkers-dev/github-workflows", self.node_ci)
+        self.assertIn("npm|pnpm|yarn)", self.setup_node)
+        self.assertIn('INSTALL_COMMAND="npm ci"', self.setup_node)
+        self.assertIn("default: '@jorisjonkers-dev'", self.setup_node)
+
+    def test_language_and_build_reusables_expose_expected_commands(self) -> None:
+        self.assertIn("default: python -m pip install -r requirements-dev.txt", self.python_ci)
+        self.assertIn("default: ruff check .", self.python_ci)
+        self.assertIn("default: python -m unittest discover", self.python_ci)
+        self.assertIn("uses: cachix/install-nix-action@v31", self.nix_ci)
+        self.assertIn("default: nix flake check --print-build-logs", self.nix_ci)
+        self.assertIn("uses: docker/build-push-action@v7", self.docker_image_ci)
+        self.assertIn("push: false", self.docker_image_ci)
+
+    def test_container_publish_tags_version_and_sha_only(self) -> None:
+        self.assertIn("packages: write", self.container_publish)
+        self.assertIn("uses: docker/login-action@v3", self.container_publish)
+        self.assertIn('printf \'%s:%s\\n\' "$image_ref" "$VERSION"', self.container_publish)
+        self.assertIn('printf \'%s:sha-%s\\n\' "$image_ref" "$GITHUB_SHA"', self.container_publish)
+        self.assertNotIn(":latest", self.container_publish)
+
+    def test_gitops_ci_runs_required_and_optional_validation_steps(self) -> None:
+        self.assertIn("uses: ./.github-workflows/actions/platform-config-validate", self.gitops_ci)
+        self.assertIn("uses: ./.github-workflows/actions/flux-render-validate", self.gitops_ci)
+        self.assertIn("uses: ./.github-workflows/actions/deploy-config-render-drift", self.gitops_ci)
+        self.assertIn("inputs.deploy-config-command != '' && inputs.deploy-config-targets != ''", self.gitops_ci)
+        self.assertIn("inputs.system-tests-command != ''", self.gitops_ci)
+
+    def test_release_and_renovate_configs_match_migration_contract(self) -> None:
+        renovate = json.loads(RENOVATE_CONFIG.read_text(encoding="utf-8"))
+        release = json.loads(RELEASE_CONFIG.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            renovate,
+            {
+                "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+                "extends": ["github>JorisJonkers-dev/renovate-config"],
+            },
+        )
+        self.assertEqual(release["bootstrap-sha"], "1eef0fe38c718b8263edb46b0bc4e2f1c6eb30a1")
+        self.assertEqual(release["release-type"], "simple")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Apply the org-standard branch ruleset (.github/rulesets/main.json) to a repo.
 #
-# Every ExtraToast repo must carry the common ruleset that makes the single
+# Every JorisJonkers-dev repo must carry the common ruleset that makes the single
 # "Pipeline Complete" status check required before any PR can merge. This
 # script is idempotent: it creates the "Main" ruleset if absent, otherwise
 # updates the existing one in place.

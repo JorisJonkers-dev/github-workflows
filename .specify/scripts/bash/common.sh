@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [ -z "${SPECIFY_SCRIPT_DIR:-}" ]; then
-  SPECIFY_SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+  SPECIFY_SCRIPT_DIR=$(unset CDPATH; cd -- "$(dirname -- "$0")" && pwd -P)
 fi
 
 specify_repo_root() {
@@ -12,11 +12,12 @@ specify_repo_root() {
     return 0
   fi
 
-  CDPATH= cd -- "${SPECIFY_SCRIPT_DIR}/../../.." && pwd -P
+  (unset CDPATH; cd -- "${SPECIFY_SCRIPT_DIR}/../../.." && pwd -P)
 }
 
 REPO_ROOT=$(specify_repo_root)
 SPECIFY_DIR="${REPO_ROOT}/.specify"
+# shellcheck disable=SC2034
 SPECS_DIR="${REPO_ROOT}/specs"
 
 specify_has_git() {
@@ -118,4 +119,3 @@ specify_paths_json() {
     "$(specify_json_escape "${plan_file}")" \
     "$(specify_json_escape "${tasks_file}")"
 }
-

@@ -7,7 +7,7 @@ inputs:
     required: false
     default: '24'
   package-manager:
-    description: Package manager to configure. Supported values are pnpm and yarn.
+    description: Package manager to configure. Supported values are npm, pnpm, and yarn.
     required: false
     default: pnpm
   cache-dependency-path:
@@ -29,7 +29,7 @@ inputs:
   npm-scope:
     description: npm scope resolved from GitHub Packages when github-packages-token is set.
     required: false
-    default: '@extratoast'
+    default: '@jorisjonkers-dev'
   github-packages-registry:
     description: npm registry URL used for the configured GitHub Packages scope.
     required: false
@@ -44,10 +44,10 @@ runs:
         PACKAGE_MANAGER: ${{ inputs.package-manager }}
       run: |
         case "$PACKAGE_MANAGER" in
-          pnpm|yarn)
+          npm|pnpm|yarn)
             ;;
           *)
-            echo "::error::Unsupported package-manager: $PACKAGE_MANAGER. Use pnpm or yarn."
+            echo "::error::Unsupported package-manager: $PACKAGE_MANAGER. Use npm, pnpm, or yarn."
             exit 1
             ;;
         esac
@@ -110,6 +110,9 @@ runs:
       run: |
         if [ -z "$INSTALL_COMMAND" ]; then
           case "$PACKAGE_MANAGER" in
+            npm)
+              INSTALL_COMMAND="npm ci"
+              ;;
             pnpm)
               INSTALL_COMMAND="pnpm install --frozen-lockfile"
               ;;

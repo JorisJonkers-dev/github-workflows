@@ -2,7 +2,8 @@
 
 set -euo pipefail
 
-SPECIFY_SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+SPECIFY_SCRIPT_DIR=$(unset CDPATH; cd -- "$(dirname -- "$0")" && pwd -P)
+# shellcheck disable=SC1091
 . "${SPECIFY_SCRIPT_DIR}/common.sh"
 
 json=false
@@ -86,4 +87,3 @@ else
   printf 'AVAILABLE_DOCS:\n'
   printf '%s\n' "${docs}" | tr ',' '\n' | sed 's/^/  /; s/"//g'
 fi
-

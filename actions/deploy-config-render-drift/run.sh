@@ -22,18 +22,18 @@ install_schema_cli() {
   rm -rf "$install_root"
   mkdir -p "$install_root"
   {
-    printf '%s\n' '@extratoast:registry=https://npm.pkg.github.com'
+    printf '%s\n' '@jorisjonkers-dev:registry=https://npm.pkg.github.com'
     if [ -n "${NODE_AUTH_TOKEN:-}" ]; then
       printf '%s\n' "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}"
     fi
     printf '%s\n' 'always-auth=true'
   } > "${npmrc}"
 
-  echo "::group::Install @extratoast/deploy-config-schema@${version}" >&2
+  echo "::group::Install @jorisjonkers-dev/deploy-config-schema@${version}" >&2
   (
     cd "${install_root}"
     npm init -y >/dev/null
-    npm install --userconfig "${npmrc}" --no-audit --no-fund --save-exact "@extratoast/deploy-config-schema@${version}" >&2
+    npm install --userconfig "${npmrc}" --no-audit --no-fund --save-exact "@jorisjonkers-dev/deploy-config-schema@${version}" >&2
   )
   echo "::endgroup::" >&2
 
@@ -41,7 +41,7 @@ install_schema_cli() {
     cd "${install_root}"
     node - <<'NODE'
 const path = require("path");
-const packageRoot = path.resolve("node_modules/@extratoast/deploy-config-schema");
+const packageRoot = path.resolve("node_modules/@jorisjonkers-dev/deploy-config-schema");
 const manifest = require(path.join(packageRoot, "package.json"));
 const bin = manifest.bin;
 
@@ -53,7 +53,7 @@ if (typeof bin === "string") {
 }
 
 if (!relativeBin) {
-  console.error("Package @extratoast/deploy-config-schema does not declare a CLI bin.");
+  console.error("Package @jorisjonkers-dev/deploy-config-schema does not declare a CLI bin.");
   process.exit(1);
 }
 
@@ -138,7 +138,7 @@ main() {
   local render_root="${temp_root}/rendered"
   mkdir -p "${render_root}"
 
-  export DEPLOY_CONFIG_SCHEMA_LOCAL="${install_root}/node_modules/@extratoast/deploy-config-schema"
+  export DEPLOY_CONFIG_SCHEMA_LOCAL="${install_root}/node_modules/@jorisjonkers-dev/deploy-config-schema"
   export DEPLOY_CONFIG_OUT="${temp_root}/deploy-config.json"
   export PATH="${install_root}/node_modules/.bin:${PATH}"
 

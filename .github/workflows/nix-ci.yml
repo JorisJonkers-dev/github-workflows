@@ -1,0 +1,46 @@
+name: Nix CI
+
+on:
+  workflow_call:
+    inputs:
+      flake-path:
+        description: Directory that contains the flake.
+        required: false
+        type: string
+        default: .
+      check-command:
+        description: Nix check command.
+        required: false
+        type: string
+        default: nix flake check --print-build-logs
+      validate-command:
+        description: Optional extra validation command.
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  nix:
+    name: Nix CI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Validate
+        if: ${{ inputs.validate-command != '' }}
+        working-directory: ${{ inputs.flake-path }}
+        env:
+          VALIDATE_COMMAND: ${{ inputs.validate-command }}
+        run: bash -euo pipefail -c "$VALIDATE_COMMAND"
+
+      - name: Check flake
+        if: ${{ inputs.check-command != '' }}
+        working-directory: ${{ inputs.flake-path }}
+        env:
+          CHECK_COMMAND: ${{ inputs.check-command }}
+        run: bash -euo pipefail -c "$CHECK_COMMAND"
