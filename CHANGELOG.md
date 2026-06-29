@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.8.0...v0.8.1) (2026-06-29)
+
+
+### Bug Fixes
+
+* make reusable publishes idempotent ([5f173b4](https://github.com/JorisJonkers-dev/github-workflows/commit/5f173b4189f38d9e683a4c51af2f0fc3a1e45f9d))
+
 ## [0.8.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.7.3...v0.8.0) (2026-06-29)
 
 

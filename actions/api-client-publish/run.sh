@@ -39,6 +39,43 @@ validate_identifier() {
   fi
 }
 
+maven_publish_failed_because_version_exists() {
+  local log_path="$1"
+
+  grep -Eiq '(Received status code 409|HTTP 409|409 Conflict)' "$log_path"
+}
+
+run_maven_publish_task() {
+  local project_dir="$1"
+  local task_name="$2"
+  local log_path
+
+  log_path="$(mktemp "${RUNNER_TEMP:-/tmp}/maven-publish.XXXXXX.log")"
+  set +e
+  gradle --no-daemon -p "$project_dir" "$task_name" > >(tee "$log_path") 2> >(tee -a "$log_path" >&2)
+  local status=$?
+  set -e
+
+  if [[ "$status" -eq 0 ]]; then
+    return 0
+  fi
+
+  if maven_publish_failed_because_version_exists "$log_path"; then
+    echo "::notice::Maven package for $task_name already exists; treating HTTP 409 as an idempotent publish success."
+    return 0
+  fi
+
+  return "$status"
+}
+
+npm_package_version_exists() {
+  local package_name="$1"
+  local version="$2"
+  local registry="$3"
+
+  npm view "${package_name}@${version}" version --registry "$registry" >/dev/null 2>&1
+}
+
 derive_jvm_package_base() {
   local maven_group="$1"
   local api_name="$2"
@@ -478,10 +515,15 @@ main() {
       if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
         die "NODE_AUTH_TOKEN is required for npm publishing"
       fi
-      gradle --no-daemon -p "$jvm_dir" :java:publish :kotlin:publish
+      run_maven_publish_task "$jvm_dir" :java:publish
+      run_maven_publish_task "$jvm_dir" :kotlin:publish
       (
         cd "$ts_dir"
-        npm publish --access public --provenance
+        if npm_package_version_exists "$ts_package" "$version" "$npm_registry_url"; then
+          echo "::notice::npm package ${ts_package}@${version} already exists; skipping publish."
+        else
+          npm publish --access public --provenance
+        fi
       )
       ;;
   esac
