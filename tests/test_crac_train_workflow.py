@@ -25,6 +25,7 @@ DEPLOY_BUNDLE_WORKFLOW = ROOT / ".github/workflows/deploy-bundle.yml"
 DEPLOY_SOURCES_RENDER_WORKFLOW = ROOT / ".github/workflows/deploy-sources-render.yml"
 ADD_TO_PROJECT_WORKFLOW = ROOT / ".github/workflows/add-to-project.yml"
 HYGIENE_GUARD_WORKFLOW = ROOT / ".github/workflows/repository-hygiene-guard.yml"
+API_CLIENT_PUBLISH_RUNNER = ROOT / "actions/api-client-publish/run.sh"
 COMPOSE_ACTION = ROOT / "actions/compose-system-test-stack/action.yml"
 COMPOSE_RUNNER = ROOT / "actions/compose-system-test-stack/run.sh"
 COMPOSE_ROUTES_FIXTURE = ROOT / "actions/compose-system-test-stack/fixtures/routes.example.txt"
@@ -529,6 +530,7 @@ class MigrationReusableWorkflowSurfaceTest(unittest.TestCase):
         cls.deploy_sources_render = DEPLOY_SOURCES_RENDER_WORKFLOW.read_text(encoding="utf-8")
         cls.add_to_project = ADD_TO_PROJECT_WORKFLOW.read_text(encoding="utf-8")
         cls.hygiene_guard = HYGIENE_GUARD_WORKFLOW.read_text(encoding="utf-8")
+        cls.api_client_publish_runner = API_CLIENT_PUBLISH_RUNNER.read_text(encoding="utf-8")
         cls.setup_node = SETUP_NODE_ACTION.read_text(encoding="utf-8")
         cls.readme = README.read_text(encoding="utf-8")
 
@@ -583,13 +585,21 @@ class MigrationReusableWorkflowSurfaceTest(unittest.TestCase):
 
     def test_deploy_v2_workflows_expose_bundle_render_and_project_surfaces(self) -> None:
         self.assertIn("'uses': './.github-workflows/actions/deploy-bundle'", self.deploy_bundle)
-        self.assertIn("oras push", self.deploy_bundle)
+        self.assertIn("oras push --disable-path-validation", self.deploy_bundle)
         self.assertIn("application/vnd.jorisjonkers.deployment.bundle.v1+tar", self.deploy_bundle)
         self.assertIn("'uses': './.github-workflows/actions/deploy-sources-render'", self.deploy_sources_render)
         self.assertIn("'image-tags':", self.deploy_sources_render)
         self.assertIn("actions/create-github-app-token@v3", self.add_to_project)
         self.assertIn("actions/add-to-project@v2.0.0", self.add_to_project)
         self.assertIn(".specify/**", self.hygiene_guard)
+
+    def test_api_client_maven_publish_is_idempotent_on_existing_versions(self) -> None:
+        self.assertIn("maven_publish_failed_because_version_exists", self.api_client_publish_runner)
+        self.assertIn("Received status code 409", self.api_client_publish_runner)
+        self.assertIn("run_maven_publish_task \"$jvm_dir\" :java:publish", self.api_client_publish_runner)
+        self.assertIn("run_maven_publish_task \"$jvm_dir\" :kotlin:publish", self.api_client_publish_runner)
+        self.assertIn("npm_package_version_exists", self.api_client_publish_runner)
+        self.assertIn("npm package ${ts_package}@${version} already exists", self.api_client_publish_runner)
 
     def test_gitops_ci_runs_required_and_optional_validation_steps(self) -> None:
         self.assertIn("uses: ./.github-workflows/actions/platform-config-validate", self.gitops_ci)

@@ -118,4 +118,4 @@ name: 'Deploy Bundle'
         'run': |
           set -euo pipefail
 
-          oras push "$BUNDLE_REF" "$BUNDLE_PATH:application/vnd.jorisjonkers.deployment.bundle.v1+tar"
+          oras push --disable-path-validation "$BUNDLE_REF" "$BUNDLE_PATH:application/vnd.jorisjonkers.deployment.bundle.v1+tar"
