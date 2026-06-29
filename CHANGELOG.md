@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.9.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.8.1...v0.9.0) (2026-06-29)
+
+
+### Features
+
+* add deploy automation reusables ([#17](https://github.com/JorisJonkers-dev/github-workflows/issues/17)) ([e6b6073](https://github.com/JorisJonkers-dev/github-workflows/commit/e6b607326865b03a8db1518b485338d2f2f64943))
+* **ci:** migrate reusable workflows to JorisJonkers-dev coordinates ([#3](https://github.com/JorisJonkers-dev/github-workflows/issues/3)) ([7d1b8f3](https://github.com/JorisJonkers-dev/github-workflows/commit/7d1b8f33c02bc8deed9b5f68cd5018365c61ac5d))
+* **clients:** add shared publish-api-clients reusable workflow + api-client-publish action ([#9](https://github.com/JorisJonkers-dev/github-workflows/issues/9)) ([96a2b65](https://github.com/JorisJonkers-dev/github-workflows/commit/96a2b650adae8a0f3fcef39262a63bd1fd3e7ab1))
+
+
+### Bug Fixes
+
+* **clients:** declare sourcesJar/javadocJar dependency on generate ([#13](https://github.com/JorisJonkers-dev/github-workflows/issues/13)) ([f67200c](https://github.com/JorisJonkers-dev/github-workflows/commit/f67200c6f04eed1040097fc59f761dc13d15ee24))
+* **clients:** link npm package to its repo for public visibility ([#15](https://github.com/JorisJonkers-dev/github-workflows/issues/15)) ([8bccf4d](https://github.com/JorisJonkers-dev/github-workflows/commit/8bccf4d5d7a34d3e972c3d5930ccb0e59b15553a))
+* **clients:** use plain setup-node (no install in empty dir) ([#11](https://github.com/JorisJonkers-dev/github-workflows/issues/11)) ([bd9c029](https://github.com/JorisJonkers-dev/github-workflows/commit/bd9c0294ca7841fc74f3d043263522a44f8dbf91))
+* make reusable publishes idempotent ([#19](https://github.com/JorisJonkers-dev/github-workflows/issues/19)) ([2189fbe](https://github.com/JorisJonkers-dev/github-workflows/commit/2189fbe8b8c17fde54b1e501de888246484b7fd2))
+* **reusable:** check out github-workflows at github.job_workflow_sha ([#7](https://github.com/JorisJonkers-dev/github-workflows/issues/7)) ([78a598a](https://github.com/JorisJonkers-dev/github-workflows/commit/78a598a5a69acb28269bf84554789bcb3c108113))
+
 ## [0.8.1](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.8.0...v0.8.1) (2026-06-29)
 
 
