@@ -33,7 +33,7 @@ jobs:
     name: Migration Guard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -53,7 +53,7 @@ jobs:
 
           printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: JorisJonkers-dev/github-workflows
           ref: ${{ github.job_workflow_sha }}

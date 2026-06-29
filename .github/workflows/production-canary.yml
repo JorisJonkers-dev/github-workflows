@@ -57,7 +57,7 @@ jobs:
     timeout-minutes: ${{ inputs.timeout-minutes }}
     if: ${{ inputs.enabled }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Wait after push
         if: ${{ github.event_name == 'push' && inputs.post-push-delay-seconds > 0 }}

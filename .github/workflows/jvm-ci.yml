@@ -56,9 +56,9 @@ jobs:
     name: JVM Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: JorisJonkers-dev/github-workflows
           ref: ${{ github.job_workflow_sha }}
@@ -79,9 +79,9 @@ jobs:
     name: JVM Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: JorisJonkers-dev/github-workflows
           ref: ${{ github.job_workflow_sha }}
