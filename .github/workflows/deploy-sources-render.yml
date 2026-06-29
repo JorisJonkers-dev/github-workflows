@@ -1,0 +1,104 @@
+name: 'Deploy Sources Render'
+
+'on':
+  'workflow_call':
+    'inputs':
+      'package-version':
+        'description': 'Version range for @jorisjonkers-dev/deploy-config-schema.'
+        'required': false
+        'type': 'string'
+        'default': '^0.6.0'
+      'environment':
+        'description': 'Deployment environment to compile.'
+        'required': false
+        'type': 'string'
+        'default': 'production'
+      'sources-path':
+        'description': 'Path to deployment-sources.yml.'
+        'required': false
+        'type': 'string'
+        'default': 'deployment-sources.yml'
+      'lock-path':
+        'description': 'Path to deployment.lock.yml.'
+        'required': false
+        'type': 'string'
+        'default': 'deployment.lock.yml'
+      'node-contract-path':
+        'description': 'Path to the locked node contract.'
+        'required': false
+        'type': 'string'
+        'default': 'inventory/node-contract.lock.yml'
+      'reachability-path':
+        'description': 'Path to reachability catalog.'
+        'required': false
+        'type': 'string'
+        'default': 'catalog/reachability.yml'
+      'output-path':
+        'description': 'Rendered Flux output directory.'
+        'required': false
+        'type': 'string'
+        'default': 'cluster/flux'
+      'update-lock':
+        'description': 'Run lock --update before compile.'
+        'required': false
+        'type': 'boolean'
+        'default': false
+      'check':
+        'description': 'Require compiled output and derived lock files to be committed.'
+        'required': false
+        'type': 'boolean'
+        'default': true
+      'cutover-parity':
+        'description': 'Run cutover parity against current-tree.'
+        'required': false
+        'type': 'boolean'
+        'default': false
+      'current-tree':
+        'description': 'Current live Flux tree used when cutover-parity is true.'
+        'required': false
+        'type': 'string'
+        'default': ''
+    'secrets':
+      'packages-token':
+        'description': 'Token used for GitHub Packages reads.'
+        'required': false
+    'outputs':
+      'image-tags':
+        'description': 'Image tags resolved from deployment.lock.yml.'
+        'value': '${{ jobs.deploy-sources-render.outputs.image-tags }}'
+
+'permissions':
+  'contents': 'read'
+
+'jobs':
+  'deploy-sources-render':
+    'name': 'Deploy Sources Render'
+    'runs-on': 'ubuntu-latest'
+    'outputs':
+      'image-tags': '${{ steps.render.outputs.image-tags }}'
+    'steps':
+      - 'uses': 'actions/checkout@v7'
+
+      - 'uses': 'actions/checkout@v7'
+        'with':
+          'repository': 'JorisJonkers-dev/github-workflows'
+          'ref': '${{ github.job_workflow_sha }}'
+          'path': '.github-workflows'
+          'persist-credentials': false
+
+      - 'name': 'Render deployment sources'
+        'id': 'render'
+        'uses': './.github-workflows/actions/deploy-sources-render'
+        'with':
+          'package-version': '${{ inputs.package-version }}'
+          'environment': '${{ inputs.environment }}'
+          'sources-path': '${{ inputs.sources-path }}'
+          'lock-path': '${{ inputs.lock-path }}'
+          'node-contract-path': '${{ inputs.node-contract-path }}'
+          'reachability-path': '${{ inputs.reachability-path }}'
+          'output-path': '${{ inputs.output-path }}'
+          'update-lock': '${{ inputs.update-lock }}'
+          'check': '${{ inputs.check }}'
+          'cutover-parity': '${{ inputs.cutover-parity }}'
+          'current-tree': '${{ inputs.current-tree }}'
+          'node-auth-token': '${{ secrets.packages-token || github.token }}'

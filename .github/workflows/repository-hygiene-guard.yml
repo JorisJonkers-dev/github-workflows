@@ -1,0 +1,104 @@
+name: 'Repository Hygiene Guard'
+
+'on':
+  'workflow_call':
+    'inputs':
+      'base-ref':
+        'description': 'Base ref used for PR comparison.'
+        'required': false
+        'type': 'string'
+        'default': ''
+      'override-label':
+        'description': 'Pull request label that bypasses this guard.'
+        'required': false
+        'type': 'string'
+        'default': 'allow-repository-hygiene-exception'
+      'allowlist-regex':
+        'description': 'Python regex for intentional exceptions.'
+        'required': false
+        'type': 'string'
+        'default': ''
+      'deny-globs':
+        'description': 'Newline-separated denied path globs.'
+        'required': false
+        'type': 'string'
+        'default': |
+          .specify/**
+          specs/[0-9][0-9][0-9]-*/**
+          plans/**
+          planning/**
+          scratchpad/**
+          scratchpads/**
+          .agent-council/**
+          **/*scratchpad*.md
+          **/*.scratch.md
+          **/*agent-council*.md
+          .claude/commands/speckit*.md
+          .claude/skills/speckit*/**
+          .agents/skills/speckit*/**
+          templates/**/.specify/**
+          templates/**/.claude/commands/speckit*.md
+
+'permissions':
+  'contents': 'read'
+  'pull-requests': 'read'
+
+'jobs':
+  'guard':
+    'name': 'Repository Hygiene Guard'
+    'runs-on': 'ubuntu-latest'
+    'if': '${{ !contains(github.event.pull_request.labels.*.name, inputs.override-label) }}'
+    'steps':
+      - 'uses': 'actions/checkout@v7'
+        'with':
+          'fetch-depth': 0
+
+      - 'name': 'Check denied planning artifacts'
+        'env':
+          'BASE_REF_INPUT': '${{ inputs.base-ref }}'
+          'BASE_REF_FALLBACK': '${{ format(''origin/{0}'', github.event.pull_request.base.ref || github.event.repository.default_branch || ''main'') }}'
+          'DENY_GLOBS': '${{ inputs.deny-globs }}'
+          'ALLOWLIST_REGEX': '${{ inputs.allowlist-regex }}'
+        'run': |
+          set -euo pipefail
+
+          base_ref="${BASE_REF_INPUT:-$BASE_REF_FALLBACK}"
+          git fetch --no-tags --depth=1 origin "${base_ref#origin/}" || true
+          export BASE_REF="$base_ref"
+
+          python3 - <<'PY'
+          import fnmatch
+          import os
+          import re
+          import subprocess
+          import sys
+
+          base_ref = os.environ['BASE_REF']
+          deny_globs = [
+              line.strip()
+              for line in os.environ['DENY_GLOBS'].splitlines()
+              if line.strip() and not line.strip().startswith('#')
+          ]
+          allowlist_raw = os.environ.get('ALLOWLIST_REGEX', '').strip()
+          allowlist = re.compile(allowlist_raw) if allowlist_raw else None
+
+          changed = subprocess.check_output(
+              ['git', 'diff', '--name-only', '--diff-filter=ACMR', f'{base_ref}...HEAD'],
+              text=True,
+          ).splitlines()
+
+          denied = []
+          for path in changed:
+              if allowlist and allowlist.search(path):
+                  continue
+              if any(fnmatch.fnmatchcase(path, pattern) for pattern in deny_globs):
+                  denied.append(path)
+
+          if denied:
+              print('::error::Denied planning/agent scratch artifacts were added or modified:')
+              for path in denied:
+                  print(f'  - {path}')
+              print('')
+              print('Move planning material to issues/PRs or durable docs, or apply the override label for an approved exception.')
+              sys.exit(1)
+          PY

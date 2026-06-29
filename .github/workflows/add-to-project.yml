@@ -1,0 +1,61 @@
+name: 'Add to Project'
+
+'on':
+  'workflow_call':
+    'inputs':
+      'project-url':
+        'description': 'Organization Project URL.'
+        'required': false
+        'type': 'string'
+        'default': 'https://github.com/orgs/JorisJonkers-dev/projects/2'
+    'secrets':
+      'PROJECT_AUTOMATION_APP_ID':
+        'description': 'GitHub App id with organization Projects write permission.'
+        'required': false
+      'PROJECT_AUTOMATION_APP_PRIVATE_KEY':
+        'description': 'Private key for the organization Project automation App.'
+        'required': false
+      'PROJECT_AUTOMATION_TOKEN':
+        'description': 'Fallback token with organization Project write permission.'
+        'required': false
+
+'permissions':
+  'contents': 'read'
+
+'jobs':
+  'add-to-project':
+    'name': 'Add to Project'
+    'runs-on': 'ubuntu-latest'
+    'if': '${{ github.event.issue.node_id != '''' || github.event.pull_request.node_id != '''' }}'
+    'env':
+      'PROJECT_AUTOMATION_APP_ID': '${{ secrets.PROJECT_AUTOMATION_APP_ID }}'
+      'PROJECT_AUTOMATION_APP_PRIVATE_KEY': '${{ secrets.PROJECT_AUTOMATION_APP_PRIVATE_KEY }}'
+    'steps':
+      - 'name': 'Mint organization Project token'
+        'id': 'app-token'
+        'if': '${{ env.PROJECT_AUTOMATION_APP_ID != '''' && env.PROJECT_AUTOMATION_APP_PRIVATE_KEY != '''' }}'
+        'uses': 'actions/create-github-app-token@v3'
+        'with':
+          'app-id': '${{ env.PROJECT_AUTOMATION_APP_ID }}'
+          'private-key': '${{ env.PROJECT_AUTOMATION_APP_PRIVATE_KEY }}'
+          'owner': '${{ github.repository_owner }}'
+          'permission-organization-projects': 'write'
+          'permission-issues': 'read'
+          'permission-pull-requests': 'read'
+
+      - 'name': 'Validate Project token'
+        'env':
+          'PROJECT_TOKEN': '${{ steps.app-token.outputs.token || secrets.PROJECT_AUTOMATION_TOKEN }}'
+        'run': |
+          set -euo pipefail
+
+          if [ -z "$PROJECT_TOKEN" ]; then
+            echo '::error::Configure PROJECT_AUTOMATION_APP_ID and PROJECT_AUTOMATION_APP_PRIVATE_KEY, or PROJECT_AUTOMATION_TOKEN.'
+            exit 1
+          fi
+
+      - 'name': 'Add issue or pull request'
+        'uses': 'actions/add-to-project@v2.0.0'
+        'with':
+          'project-url': '${{ inputs.project-url }}'
+          'github-token': '${{ steps.app-token.outputs.token || secrets.PROJECT_AUTOMATION_TOKEN }}'

@@ -1,453 +1,120 @@
 # github-workflows
 
-Reusable JorisJonkers-dev composite actions and workflows live here. Consumer
-repositories should call them with immutable release tags, not branches.
-Renovate keeps those pins current.
+Reusable GitHub Actions workflows and composite actions for JorisJonkers-dev
+repositories.
 
-## Composite actions
+## What It Is
 
-### `prepare-ci-host`
+`github-workflows` centralizes CI, release, image publishing, deploy bundle,
+Project automation, and repository hygiene automation. Consumer repositories
+should call released tags instead of branches.
 
-Downloads Docker image artifacts, loads the image tarballs, and optionally runs
-a repository-provided dev DNS setup script.
+## Composite Actions
 
-```yaml
-steps:
-  - uses: actions/checkout@v4
-  - uses: JorisJonkers-dev/github-workflows/actions/prepare-ci-host@v0.6.0
-    with:
-      artifact-pattern: image-*
-      artifact-path: /tmp/images
-      image-name-pattern: image-*
-      image-tar-pattern: '*.tar'
-      configure-dev-dns: 'true'
-      dev-dns-script-path: infra/scripts/setup-dev-dns.sh
-```
+| Action | Purpose |
+| --- | --- |
+| `actions/setup-java-gradle` | Install Java and configure Gradle package access/cache settings. |
+| `actions/setup-node` | Install Node, configure npm/pnpm/yarn caching, and install dependencies. |
+| `actions/prepare-ci-host` | Download Docker image artifacts and prepare optional dev DNS. |
+| `actions/platform-config-validate` | Install `@jorisjonkers-dev/deploy-config-schema` and validate platform YAML. |
+| `actions/deploy-config-render-drift` | Render deploy-config adapter output and compare committed files. |
+| `actions/flux-render-validate` | Validate Flux render output for GitOps repositories. |
+| `actions/compose-system-test-stack` | Run caller-owned Docker Compose system-test stacks. |
+| `actions/api-client-publish` | Generate and publish TypeScript, Java, and Kotlin API clients. |
+| `actions/deploy-bundle` | Validate and pack a first-party `deploy/` directory as an OCI bundle. |
+| `actions/deploy-sources-render` | Resolve deployment sources, compile Flux output, and emit image tags. |
 
-Inputs:
+## Reusable Workflows
 
-| Name | Default | Purpose |
-| --- | --- | --- |
-| `artifact-pattern` | `image-*` | Artifact name pattern passed to `actions/download-artifact`. |
-| `artifact-path` | `/tmp/images` | Directory where artifacts are downloaded. |
-| `image-name-pattern` | `image-*` | Directory pattern below `artifact-path` that contains tarballs. |
-| `image-tar-pattern` | `*.tar` | File pattern for Docker image tarballs. |
-| `configure-dev-dns` | `true` | Runs the dev DNS script when set to `true`. |
-| `dev-dns-script-path` | `infra/scripts/setup-dev-dns.sh` | Script path in the checked-out repository. |
+| Workflow | Purpose |
+| --- | --- |
+| `node-ci.yml` | Node install, lint, typecheck, test, and build jobs. |
+| `python-ci.yml` | Python lint/test workflow with overrideable commands. |
+| `nix-ci.yml` | Nix installer plus flake check and optional validation. |
+| `jvm-ci.yml` | Gradle lint/test workflow for JVM repositories. |
+| `docker-image-ci.yml` | Build a Docker image without publishing. |
+| `container-publish.yml` | Publish a GHCR image with release and sha tags. |
+| `publish-api-clients.yml` | Generate and publish API clients from an OpenAPI spec. |
+| `gitops-ci.yml` | Platform config, Flux render, drift, and optional system tests. |
+| `platform-config-validate.yml` | Reusable platform YAML validation job. |
+| `deploy-config-render-drift.yml` | Reusable deploy-config render-drift job. |
+| `flux-render-validate.yml` | Reusable Flux render validation job. |
+| `migration-guard.yml` | Block unsafe edits to existing Flyway-style migrations. |
+| `crac-train.yml` | Build and run CRaC training images with optional sidecars. |
+| `production-canary.yml` | Run caller-owned production smoke checks. |
+| `deploy-bundle.yml` | Validate first-party deploy bundles and optionally publish them to GHCR. |
+| `deploy-sources-render.yml` | Render deployment sources and expose image tags for downstream tests. |
+| `repository-hygiene-guard.yml` | Block reintroduction of planning and scratch artifacts. |
+| `add-to-project.yml` | Add opened/reopened issues and pull requests to the org Project. |
 
-### `setup-java-gradle`
-
-Installs Java and configures Gradle dependency caching.
-
-```yaml
-steps:
-  - uses: actions/checkout@v4
-  - uses: JorisJonkers-dev/github-workflows/actions/setup-java-gradle@v0.6.0
-    with:
-      java-version: '21'
-      java-distribution: temurin
-      github-packages-token: ${{ secrets.GITHUB_TOKEN }}
-```
-
-Inputs:
-
-| Name | Default | Purpose |
-| --- | --- | --- |
-| `java-version` | `21` | Java version installed by `actions/setup-java`. |
-| `java-distribution` | `temurin` | Java distribution installed by `actions/setup-java`. |
-| `gradle-cache-disabled` | `false` | Disables Gradle caching when set to `true`. |
-| `gradle-cache-read-only` | `false` | Restores Gradle cache entries without saving updates when set to `true`. |
-| `github-packages-actor` | `github.actor` | GitHub Packages actor exported as `GITHUB_ACTOR` when `github-packages-token` is set. |
-| `github-packages-token` | empty | GitHub Packages token exported as `GITHUB_TOKEN` for Gradle package resolution. |
-
-### `setup-node`
-
-Installs Node, configures package-manager caching, and installs dependencies.
-The package manager may be npm, pnpm, or Yarn Berry.
-
-```yaml
-steps:
-  - uses: actions/checkout@v4
-  - uses: JorisJonkers-dev/github-workflows/actions/setup-node@v0.6.0
-    with:
-      node-version: '24'
-      package-manager: pnpm
-      cache-dependency-path: pnpm-lock.yaml
-      github-packages-token: ${{ secrets.GITHUB_TOKEN }}
-```
-
-Yarn example:
-
-```yaml
-steps:
-  - uses: actions/checkout@v4
-  - uses: JorisJonkers-dev/github-workflows/actions/setup-node@v0.6.0
-    with:
-      node-version: '24'
-      package-manager: yarn
-      cache-dependency-path: yarn.lock
-      github-packages-token: ${{ secrets.GITHUB_TOKEN }}
-```
-
-Inputs:
-
-| Name | Default | Purpose |
-| --- | --- | --- |
-| `node-version` | `24` | Node.js version installed by `actions/setup-node`. |
-| `package-manager` | `pnpm` | Package manager to configure. Supported values: `npm`, `pnpm`, `yarn`. |
-| `cache-dependency-path` | empty | Lockfile path or paths used for dependency caching. |
-| `working-directory` | `.` | Directory where dependencies are installed. |
-| `install-command` | empty | Overrides the install command. Empty uses `pnpm install --frozen-lockfile` or `yarn install --immutable`. |
-| `github-packages-token` | empty | GitHub Packages token used to write project `.npmrc` auth and export `NODE_AUTH_TOKEN`. |
-| `npm-scope` | `@jorisjonkers-dev` | npm scope resolved from GitHub Packages when `github-packages-token` is set. |
-| `github-packages-registry` | `https://npm.pkg.github.com` | npm registry URL used for the configured GitHub Packages scope. |
-
-### `platform-config-validate`
-
-Installs a pinned `@jorisjonkers-dev/deploy-config-schema` package, validates caller
-YAML configs, and can run `render-tree --check` to catch rendered-tree drift.
-
-```yaml
-steps:
-  - uses: actions/checkout@v6
-  - uses: JorisJonkers-dev/github-workflows/actions/platform-config-validate@v0.6.0
-    with:
-      config-paths: |-
-        platform/**/*.yaml
-        platform/**/*.yml
-      schema-kind: auto
-      package-version: 0.3.0
-      drift-check: 'true'
-```
-
-Inputs:
-
-| Name | Default | Purpose |
-| --- | --- | --- |
-| `config-paths` | `platform/**/*.yaml`, `platform/**/*.yml` | Newline- or comma-separated file globs to validate. |
-| `schema-kind` | `auto` | Schema kind: `platform`, `deploy-config`, `service-intent`, `fleet-inventory`, `vault-dynamic-secrets`, or `auto`. |
-| `package-version` | `0.3.0` | Version of `@jorisjonkers-dev/deploy-config-schema` to install. |
-| `drift-check` | `false` | Runs `render-tree --check` after validation when set to `true`. |
-| `working-directory` | `.` | Directory where config globs are evaluated. |
-
-### `compose-system-test-stack`
-
-Runs a caller-owned Docker Compose CI/system-test stack, waits for service
-health or routes, runs optional migration checks, dumps diagnostics on failure,
-and tears the stack down by default. Compose files, service names, route URLs,
-migration assertions, and hook commands stay in the consumer repository.
-
-```yaml
-steps:
-  - uses: actions/checkout@v6
-  - uses: JorisJonkers-dev/github-workflows/actions/compose-system-test-stack@v0.6.0
-    with:
-      compose-files: |-
-        docker-compose.yml
-        docker-compose.ci.yml
-      services: api frontend db
-      wait-strategy: routes
-      wait-routes-file: .github/system-test-routes.txt
-      diagnostics-command: .github/scripts/dump-compose-diagnostics.sh
-      migration-check-command: .github/scripts/verify-migrations.sh
-```
-
-Route wait files contain blank lines, comments, or either `name url` or `url`
-entries. Generate the file in the caller repository when URLs depend on
-environment-specific hostnames or ports.
-
-The action tears the stack down before the next workflow step unless
-`down-on-complete` is set to `false`. For tests that run in later steps, leave
-the stack up and provide separate caller-owned diagnostics and cleanup.
-
-Inputs:
-
-| Name | Default | Purpose |
-| --- | --- | --- |
-| `compose-files` | `docker-compose.yml`, `docker-compose.ci.yml` | Newline-separated compose files owned by the caller repository. |
-| `services` | empty | Space-separated services to pass to `docker compose up`; empty starts the selected stack. |
-| `project-name` | empty | Optional Docker Compose project name. |
-| `working-directory` | `.` | Directory containing compose files and hook scripts. |
-| `wait-strategy` | `compose-wait` | Wait mode: `compose-wait`, `services`, `command`, `routes`, or `none`. |
-| `wait-command` | empty | Caller-owned command for `wait-strategy=command`. |
-| `wait-routes-file` | empty | Caller-owned route list for `wait-strategy=routes`. |
-| `wait-timeout-seconds` | `300` | Timeout per route when `wait-strategy=routes`. |
-| `wait-interval-seconds` | `2` | Poll interval per route when `wait-strategy=routes`. |
-| `migration-check-command` | empty | Optional caller-owned migration verification command. |
-| `diagnostics-command` | empty | Optional caller-owned diagnostics command for failures. Built-in `ps`, logs, and Docker disk diagnostics run first. |
-| `cleanup-command` | empty | Optional caller-owned cleanup command run before `docker compose down`. |
-| `up-args` | `--no-build --wait --timeout 300 -d` | Extra `docker compose up` arguments. |
-| `down-on-complete` | `true` | Whether to run `docker compose down --remove-orphans` after the stack step completes. |
-
-## Reusable workflows
-
-### `node-ci.yml`
-
-Runs dependency install plus optional package, lint, typecheck, test, and build
-commands for Node repositories.
+## Examples
 
 ```yaml
 jobs:
   node-ci:
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/node-ci.yml@v0.6.0
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/node-ci.yml@v0.7.3
     with:
       package-manager: pnpm
       lint-command: pnpm lint
-      typecheck-command: pnpm typecheck
       test-command: pnpm test
-      build-command: pnpm build
     secrets:
       packages-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-### `python-ci.yml`
-
-Runs standard Python install, lint, and test commands. Each command can be
-overridden or disabled with an empty string.
-
 ```yaml
 jobs:
-  python-ci:
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/python-ci.yml@v0.6.0
-```
-
-### `nix-ci.yml`
-
-Installs Nix and runs a flake check plus an optional validation command.
-
-```yaml
-jobs:
-  nix-ci:
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/nix-ci.yml@v0.6.0
-```
-
-### `docker-image-ci.yml`
-
-Builds a Docker image without publishing it.
-
-```yaml
-jobs:
-  image-ci:
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/docker-image-ci.yml@v0.6.0
+  deploy-bundle:
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/deploy-bundle.yml@v0.7.3
     with:
-      image-name: example-api
-      context: .
-      dockerfile: services/example-api/Dockerfile
-```
-
-### `container-publish.yml`
-
-Builds and publishes a GHCR image tagged only with the release version and
-`sha-${GITHUB_SHA}`.
-
-```yaml
-jobs:
-  publish:
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/container-publish.yml@v0.6.0
-    with:
-      image-name: example-api
+      deploy-dir: deploy
       version: ${{ needs.release.outputs.version }}
-```
-
-### `gitops-ci.yml`
-
-Runs platform config validation, Flux render validation, optional deploy-config
-render drift, and optional caller-owned system tests.
-
-```yaml
-jobs:
-  gitops-ci:
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/gitops-ci.yml@v0.6.0
-    with:
-      overlay-paths: |-
-        clusters/production
-      platform-config-paths: |-
-        inventory/**/*.yaml
-        inventory/**/*.yml
+      publish: true
     secrets:
       packages-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-### `platform-config-validate.yml`
-
-Validates platform YAML from any consumer repository with one reusable workflow
-job. This is the preferred entry point when the repository only needs the
-standard validation job.
-
 ```yaml
 jobs:
-  platform-config:
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/platform-config-validate.yml@v0.6.0
-    with:
-      config-paths: |-
-        platform/**/*.yaml
-        platform/**/*.yml
-      schema-kind: auto
-      package-version: 0.3.0
-      drift-check: true
+  deploy-sources-render:
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/deploy-sources-render.yml@v0.7.3
+    secrets:
+      packages-token: ${{ secrets.GITHUB_TOKEN }}
 ```
-
-Inputs:
-
-| Name | Default | Purpose |
-| --- | --- | --- |
-| `config-paths` | `platform/**/*.yaml`, `platform/**/*.yml` | Newline- or comma-separated file globs to validate. |
-| `schema-kind` | `auto` | Schema kind: `platform`, `deploy-config`, `service-intent`, `fleet-inventory`, `vault-dynamic-secrets`, or `auto`. |
-| `package-version` | `0.3.0` | Version of `@jorisjonkers-dev/deploy-config-schema` to install. |
-| `drift-check` | `false` | Runs `render-tree --check` after validation when set to `true`. |
-| `working-directory` | `.` | Directory where config globs are evaluated. |
-
-### `migration-guard.yml`
-
-Checks Flyway-style SQL migrations for two failure modes: existing migrations
-changed after being committed, and newly added migrations whose version is not
-greater than the base branch maximum for the same service.
-
-```yaml
-jobs:
-  migration-guard:
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/migration-guard.yml@v0.6.0
-    with:
-      migration-regex: 'services/[^/]+/src/main/resources/db/migration(-pg)?/V[0-9][^/]*\.sql$'
-      scope-regex: '(services/[^/]+)/.*'
-      override-label: allow-migration-change
-```
-
-Inputs:
-
-| Name | Default | Purpose |
-| --- | --- | --- |
-| `base-ref` | inferred PR base or default branch | Git ref used as the immutable migration baseline. |
-| `migration-regex` | `services/.../db/migration(-pg)?/V*.sql` | Regex matching migration files. |
-| `scope-regex` | `(services/[^/]+)/.*` | Regex whose first capture group defines the version namespace. |
-| `override-label` | `allow-migration-change` | PR label that downgrades existing migration changes to warnings. |
-
-### `crac-train.yml`
-
-Builds CRaC training Docker targets, runs them with per-service optional
-Postgres, Valkey, and RabbitMQ sidecars, validates that a checkpoint was
-produced, and uploads one checkpoint artifact per service. Matrix rows that do
-not declare `sidecars` keep the original round-2 behavior and start all three
-sidecars.
 
 ```yaml
 jobs:
   crac-train:
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/crac-train.yml@v0.6.0
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/crac-train.yml@v0.7.3
     with:
       service-matrix: >-
         [
           {
             "service": "example-api",
-            "context": ".",
             "dockerfile": "services/example-api/Dockerfile",
-            "db_name": "example_db",
-            "db_user": "example_user",
-            "db_password": "example_password",
-            "port": 8080,
             "sidecars": ["postgres", "valkey"]
           },
           {
             "service": "worker",
-            "context": ".",
             "dockerfile": "services/worker/Dockerfile",
             "sidecars": "none"
           }
         ]
-      docker-target: train
-      checkpoint-path: /opt/crac/checkpoint
-      expected-exit-codes: '0 137'
-    secrets:
-      packages-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-Inputs:
+## Local Use
 
-| Name | Default | Purpose |
-| --- | --- | --- |
-| `service-matrix` | required | JSON matrix include list for services to train. |
-| `docker-target` | `train` | Dockerfile target used for training images. |
-| `checkpoint-path` | `/opt/crac/checkpoint` | Container path where CRaC writes checkpoint files. |
-| `expected-exit-codes` | `0 137` | Space-separated accepted container exit codes. |
-| `artifact-retention-days` | `7` | Checkpoint artifact retention period. |
-| `postgres-image` | `postgres:17-alpine` | Postgres sidecar image. |
-| `valkey-image` | `valkey/valkey:7-alpine` | Valkey sidecar image. |
-| `rabbitmq-image` | `rabbitmq:3-management-alpine` | RabbitMQ sidecar image. |
-| `extra-docker-run-args` | empty | Extra arguments appended before the training image tag. |
-
-Matrix fields:
-
-| Name | Default | Purpose |
-| --- | --- | --- |
-| `service` | required | Service name used for the local image tag and checkpoint artifact prefix. |
-| `context` | `.` | Docker build context. |
-| `dockerfile` | required | Dockerfile path in the caller repository. |
-| `db_name` | `service` | Postgres database name when the Postgres sidecar is enabled. |
-| `db_user` | `postgres` | Postgres username when the Postgres sidecar is enabled. |
-| `db_password` | `postgres` | Postgres password when the Postgres sidecar is enabled. |
-| `port` | empty | Optional `SERVER_PORT` passed to the training container. |
-| `sidecars` | all three | String or list containing `postgres`, `valkey`, `rabbitmq`, or `none`. Missing keeps the backward-compatible full topology; `[]`, `none`, or `["none"]` starts no sidecars. |
-
-### `production-canary.yml`
-
-Runs a caller-owned production smoke command with optional post-push delay,
-diagnostics, cleanup, and webhook notification. Service-specific URLs, auth,
-assertions, and mutation behavior stay in the caller repository.
-
-```yaml
-jobs:
-  production-canary:
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/production-canary.yml@v0.6.0
-    with:
-      enabled: ${{ vars.PROD_CANARY_ENABLED == 'true' }}
-      post-push-delay-seconds: 180
-      canary-command: ./scripts/prod-canary.sh
-      diagnostics-command: ./scripts/prod-canary-diagnostics.sh
-      cleanup-command: ./scripts/prod-canary-cleanup.sh
-      notification-message: Production canary failed.
-    secrets:
-      webhook-url: ${{ secrets.PROD_CANARY_WEBHOOK_URL }}
+```bash
+actionlint .github/workflows/*.yml
+python3 -m unittest discover -s tests
 ```
 
-Inputs:
+## Links
 
-| Name | Default | Purpose |
-| --- | --- | --- |
-| `enabled` | `true` | Allows callers to opt in through repository variables. |
-| `canary-command` | required | Caller-owned smoke command. |
-| `cleanup-command` | empty | Optional cleanup command run with `always()`. |
-| `diagnostics-command` | empty | Optional diagnostics command run on failure. |
-| `working-directory` | `.` | Directory where commands run. |
-| `timeout-minutes` | `5` | Canary job timeout. |
-| `post-push-delay-seconds` | `0` | Delay for push-triggered callers. |
-| `notification-message` | `Production canary failed.` | Message prefix posted on failure. |
+- [Organization profile](https://github.com/JorisJonkers-dev)
+- [Security policy](https://github.com/JorisJonkers-dev/.github/security/policy)
+- [Changelog](./CHANGELOG.md)
+- [License](./LICENSE)
 
-### `jvm-ci.yml`
-
-Runs generic Gradle lint and test jobs for JVM repositories.
-
-```yaml
-jobs:
-  jvm-ci:
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/jvm-ci.yml@v0.6.0
-    with:
-      java-version: '21'
-      gradle-args: --no-daemon --stacktrace
-      lint-gradle-args: detekt ktlintCheck
-      test-gradle-args: test
-    secrets:
-      packages-token: ${{ secrets.GITHUB_TOKEN }}
-```
-
-Inputs:
-
-| Name | Default | Purpose |
-| --- | --- | --- |
-| `java-version` | `21` | Java version installed for both jobs. |
-| `java-distribution` | `temurin` | Java distribution installed for both jobs. |
-| `working-directory` | `.` | Directory that contains the Gradle build. |
-| `gradle-command` | `./gradlew` | Gradle command to run. |
-| `gradle-args` | `--no-daemon` | Additional arguments appended to lint and test commands. |
-| `lint-gradle-args` | `check` | Gradle tasks or arguments for lint checks. |
-| `test-gradle-args` | `test` | Gradle tasks or arguments for tests. |
-| `packages-token` | empty | GitHub Packages token passed to `setup-java-gradle` for Gradle package resolution. Prefer passing it as the `packages-token` workflow secret. |
+Copyright (c) Joris Jonkers. Source available for viewing only; use, copying,
+modification, redistribution, deployment, or reuse is not licensed. See
+[LICENSE](./LICENSE).

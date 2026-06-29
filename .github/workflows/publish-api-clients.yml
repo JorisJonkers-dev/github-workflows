@@ -76,7 +76,7 @@ jobs:
 
       # Install Node + configure the GitHub Packages registry only. Do NOT install here —
       # the typescript project is created by api-client-publish, which runs npm install itself.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node-version }}
           registry-url: ${{ inputs.npm-registry-url }}

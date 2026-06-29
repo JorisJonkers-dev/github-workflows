@@ -1,0 +1,121 @@
+name: 'Deploy Bundle'
+
+'on':
+  'workflow_call':
+    'inputs':
+      'deploy-dir':
+        'description': 'Path to the caller-owned deploy directory.'
+        'required': false
+        'type': 'string'
+        'default': 'deploy'
+      'images':
+        'description': 'Newline- or comma-separated image refs to include in the bundle manifest.'
+        'required': false
+        'type': 'string'
+        'default': ''
+      'package-version':
+        'description': 'Version range for @jorisjonkers-dev/deploy-config-schema.'
+        'required': false
+        'type': 'string'
+        'default': '^0.6.0'
+      'version':
+        'description': 'Bundle version. Defaults to the ref name or a sha-prefixed development version.'
+        'required': false
+        'type': 'string'
+        'default': ''
+      'bundle-name':
+        'description': 'Bundle package basename. Defaults to the repository name.'
+        'required': false
+        'type': 'string'
+        'default': ''
+      'publish':
+        'description': 'Publish the packed deploy bundle to GHCR.'
+        'required': false
+        'type': 'boolean'
+        'default': false
+    'secrets':
+      'packages-token':
+        'description': 'Token used for GitHub Packages reads and GHCR writes.'
+        'required': false
+    'outputs':
+      'bundle-ref':
+        'description': 'Published or publishable OCI bundle ref.'
+        'value': '${{ jobs.deploy-bundle.outputs.bundle-ref }}'
+      'bundle-path':
+        'description': 'Packed bundle tarball path.'
+        'value': '${{ jobs.deploy-bundle.outputs.bundle-path }}'
+
+'permissions':
+  'contents': 'read'
+  'packages': 'write'
+
+'jobs':
+  'deploy-bundle':
+    'name': 'Deploy Bundle'
+    'runs-on': 'ubuntu-latest'
+    'outputs':
+      'bundle-ref': '${{ steps.bundle-ref.outputs.bundle-ref }}'
+      'bundle-path': '${{ steps.bundle.outputs.bundle-path }}'
+    'steps':
+      - 'uses': 'actions/checkout@v7'
+
+      - 'uses': 'actions/checkout@v7'
+        'with':
+          'repository': 'JorisJonkers-dev/github-workflows'
+          'ref': '${{ github.job_workflow_sha }}'
+          'path': '.github-workflows'
+          'persist-credentials': false
+
+      - 'name': 'Pack deploy bundle'
+        'id': 'bundle'
+        'uses': './.github-workflows/actions/deploy-bundle'
+        'with':
+          'deploy-dir': '${{ inputs.deploy-dir }}'
+          'images': '${{ inputs.images }}'
+          'package-version': '${{ inputs.package-version }}'
+          'version': '${{ inputs.version }}'
+          'bundle-name': '${{ inputs.bundle-name }}'
+          'node-auth-token': '${{ secrets.packages-token || github.token }}'
+
+      - 'name': 'Resolve bundle ref'
+        'id': 'bundle-ref'
+        'env':
+          'BUNDLE_NAME': '${{ steps.bundle.outputs.bundle-name }}'
+          'BUNDLE_VERSION': '${{ steps.bundle.outputs.bundle-version }}'
+          'GITHUB_REPOSITORY_OWNER': '${{ github.repository_owner }}'
+        'run': |
+          set -euo pipefail
+
+          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          name="$(printf '%s' "$BUNDLE_NAME" | tr '[:upper:]' '[:lower:]')"
+          printf 'bundle-ref=ghcr.io/%s/%s-deploy-bundle:%s\n' "$owner" "$name" "$BUNDLE_VERSION" >> "$GITHUB_OUTPUT"
+
+      - 'name': 'Upload deploy bundle artifact'
+        'uses': 'actions/upload-artifact@v5'
+        'with':
+          'name': 'deploy-bundle'
+          'path': '${{ steps.bundle.outputs.bundle-path }}'
+          'if-no-files-found': 'error'
+          'retention-days': 7
+
+      - 'uses': 'oras-project/setup-oras@v2'
+        'if': '${{ inputs.publish }}'
+
+      - 'name': 'Log in to GHCR'
+        'if': '${{ inputs.publish }}'
+        'env':
+          'GHCR_TOKEN': '${{ secrets.packages-token || github.token }}'
+        'run': |
+          set -euo pipefail
+
+          oras login ghcr.io --username "$GITHUB_ACTOR" --password-stdin <<< "$GHCR_TOKEN"
+
+      - 'name': 'Publish deploy bundle'
+        'if': '${{ inputs.publish }}'
+        'env':
+          'BUNDLE_PATH': '${{ steps.bundle.outputs.bundle-path }}'
+          'BUNDLE_REF': '${{ steps.bundle-ref.outputs.bundle-ref }}'
+        'run': |
+          set -euo pipefail
+
+          oras push "$BUNDLE_REF" "$BUNDLE_PATH:application/vnd.jorisjonkers.deployment.bundle.v1+tar"
