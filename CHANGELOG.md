@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.7.3...v0.8.0) (2026-06-29)
+
+
+### Features
+
+* add deploy automation reusables ([#17](https://github.com/JorisJonkers-dev/github-workflows/issues/17)) ([e6b6073](https://github.com/JorisJonkers-dev/github-workflows/commit/e6b607326865b03a8db1518b485338d2f2f64943))
+
 ## [0.7.3](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.7.2...v0.7.3) (2026-06-28)
 
 
