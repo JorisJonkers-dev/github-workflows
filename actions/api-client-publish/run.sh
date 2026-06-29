@@ -157,6 +157,7 @@ write_jvm_build_gradle() {
 
   cat > "$output" <<GRADLE
 import org.gradle.api.publish.maven.MavenPublication
+import org.gradle.external.javadoc.StandardJavadocDocletOptions
 
 plugins {
     id("dev.jorisjonkers.openapi-client") version "$plugin_version"
@@ -187,6 +188,12 @@ GRADLE
 java {
     withSourcesJar()
     withJavadocJar()
+}
+
+tasks.withType<Javadoc>().configureEach {
+    options {
+        (this as StandardJavadocDocletOptions).addStringOption("Xdoclint:none", "-quiet")
+    }
 }
 
 publishing {

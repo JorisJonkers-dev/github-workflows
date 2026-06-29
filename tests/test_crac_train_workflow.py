@@ -21,6 +21,10 @@ NIX_CI_WORKFLOW = ROOT / ".github/workflows/nix-ci.yml"
 DOCKER_IMAGE_CI_WORKFLOW = ROOT / ".github/workflows/docker-image-ci.yml"
 CONTAINER_PUBLISH_WORKFLOW = ROOT / ".github/workflows/container-publish.yml"
 GITOPS_CI_WORKFLOW = ROOT / ".github/workflows/gitops-ci.yml"
+DEPLOY_BUNDLE_WORKFLOW = ROOT / ".github/workflows/deploy-bundle.yml"
+DEPLOY_SOURCES_RENDER_WORKFLOW = ROOT / ".github/workflows/deploy-sources-render.yml"
+ADD_TO_PROJECT_WORKFLOW = ROOT / ".github/workflows/add-to-project.yml"
+HYGIENE_GUARD_WORKFLOW = ROOT / ".github/workflows/repository-hygiene-guard.yml"
 COMPOSE_ACTION = ROOT / "actions/compose-system-test-stack/action.yml"
 COMPOSE_RUNNER = ROOT / "actions/compose-system-test-stack/run.sh"
 COMPOSE_ROUTES_FIXTURE = ROOT / "actions/compose-system-test-stack/fixtures/routes.example.txt"
@@ -504,7 +508,6 @@ class PlatformConfigValidateSurfaceTest(unittest.TestCase):
         self.assertIn("name: example-platform", platform_fixture)
         self.assertIn("api-service:", service_fixture)
         self.assertIn("platform-config-validate.yml", self.readme)
-        self.assertIn("JorisJonkers-dev/github-workflows/.github/workflows/platform-config-validate.yml", self.readme)
         self.assertIn("@jorisjonkers-dev/deploy-config-schema", self.readme)
 
     def test_ci_uses_official_actionlint_download_script(self) -> None:
@@ -522,21 +525,23 @@ class MigrationReusableWorkflowSurfaceTest(unittest.TestCase):
         cls.docker_image_ci = DOCKER_IMAGE_CI_WORKFLOW.read_text(encoding="utf-8")
         cls.container_publish = CONTAINER_PUBLISH_WORKFLOW.read_text(encoding="utf-8")
         cls.gitops_ci = GITOPS_CI_WORKFLOW.read_text(encoding="utf-8")
+        cls.deploy_bundle = DEPLOY_BUNDLE_WORKFLOW.read_text(encoding="utf-8")
+        cls.deploy_sources_render = DEPLOY_SOURCES_RENDER_WORKFLOW.read_text(encoding="utf-8")
+        cls.add_to_project = ADD_TO_PROJECT_WORKFLOW.read_text(encoding="utf-8")
+        cls.hygiene_guard = HYGIENE_GUARD_WORKFLOW.read_text(encoding="utf-8")
         cls.setup_node = SETUP_NODE_ACTION.read_text(encoding="utf-8")
         cls.readme = README.read_text(encoding="utf-8")
 
-    def test_new_reusable_workflows_are_documented_at_v0_6_0(self) -> None:
+    def test_reusable_workflows_are_documented_at_current_tag(self) -> None:
         for workflow in [
             "node-ci.yml",
-            "python-ci.yml",
-            "nix-ci.yml",
-            "docker-image-ci.yml",
-            "container-publish.yml",
-            "gitops-ci.yml",
+            "deploy-bundle.yml",
+            "deploy-sources-render.yml",
+            "crac-train.yml",
         ]:
             self.assertTrue((ROOT / f".github/workflows/{workflow}").is_file())
             self.assertIn(
-                f"JorisJonkers-dev/github-workflows/.github/workflows/{workflow}@v0.6.0",
+                f"JorisJonkers-dev/github-workflows/.github/workflows/{workflow}@v0.7.3",
                 self.readme,
             )
 
@@ -571,10 +576,20 @@ class MigrationReusableWorkflowSurfaceTest(unittest.TestCase):
 
     def test_container_publish_tags_version_and_sha_only(self) -> None:
         self.assertIn("packages: write", self.container_publish)
-        self.assertIn("uses: docker/login-action@v3", self.container_publish)
+        self.assertIn("uses: docker/login-action@v4", self.container_publish)
         self.assertIn('printf \'%s:%s\\n\' "$image_ref" "$VERSION"', self.container_publish)
         self.assertIn('printf \'%s:sha-%s\\n\' "$image_ref" "$GITHUB_SHA"', self.container_publish)
         self.assertNotIn(":latest", self.container_publish)
+
+    def test_deploy_v2_workflows_expose_bundle_render_and_project_surfaces(self) -> None:
+        self.assertIn("'uses': './.github-workflows/actions/deploy-bundle'", self.deploy_bundle)
+        self.assertIn("oras push", self.deploy_bundle)
+        self.assertIn("application/vnd.jorisjonkers.deployment.bundle.v1+tar", self.deploy_bundle)
+        self.assertIn("'uses': './.github-workflows/actions/deploy-sources-render'", self.deploy_sources_render)
+        self.assertIn("'image-tags':", self.deploy_sources_render)
+        self.assertIn("actions/create-github-app-token@v3", self.add_to_project)
+        self.assertIn("actions/add-to-project@v2.0.0", self.add_to_project)
+        self.assertIn(".specify/**", self.hygiene_guard)
 
     def test_gitops_ci_runs_required_and_optional_validation_steps(self) -> None:
         self.assertIn("uses: ./.github-workflows/actions/platform-config-validate", self.gitops_ci)

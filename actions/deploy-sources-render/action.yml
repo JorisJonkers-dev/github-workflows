@@ -1,0 +1,87 @@
+name: 'Deploy Sources Render'
+description: 'Resolve deployment sources, compile Flux output, and check render drift.'
+
+inputs:
+  package-version:
+    description: 'Version range for @jorisjonkers-dev/deploy-config-schema.'
+    required: false
+    default: '^0.6.0'
+  environment:
+    description: 'Deployment environment to compile.'
+    required: false
+    default: 'production'
+  sources-path:
+    description: 'Path to deployment-sources.yml.'
+    required: false
+    default: 'deployment-sources.yml'
+  lock-path:
+    description: 'Path to deployment.lock.yml.'
+    required: false
+    default: 'deployment.lock.yml'
+  node-contract-path:
+    description: 'Path to the locked node contract.'
+    required: false
+    default: 'inventory/node-contract.lock.yml'
+  reachability-path:
+    description: 'Path to reachability catalog.'
+    required: false
+    default: 'catalog/reachability.yml'
+  output-path:
+    description: 'Rendered Flux output directory.'
+    required: false
+    default: 'cluster/flux'
+  working-directory:
+    description: 'Directory where paths are resolved.'
+    required: false
+    default: '.'
+  update-lock:
+    description: 'Run lock --update before compile.'
+    required: false
+    default: 'false'
+  check:
+    description: 'Require compiled output and derived lock files to be committed.'
+    required: false
+    default: 'true'
+  cutover-parity:
+    description: 'Run cutover parity against current-tree.'
+    required: false
+    default: 'false'
+  current-tree:
+    description: 'Current live Flux tree used when cutover-parity is true.'
+    required: false
+    default: ''
+  node-auth-token:
+    description: 'Token with packages:read for installing @jorisjonkers-dev packages from GitHub Packages.'
+    required: false
+    default: ''
+
+outputs:
+  image-tags:
+    description: 'Image tags resolved from deployment.lock.yml.'
+    value: '${{ steps.render.outputs.image-tags }}'
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: 'actions/setup-node@v6'
+      with:
+        node-version: '24'
+
+    - name: 'Render deployment sources'
+      id: 'render'
+      shell: 'bash'
+      env:
+        PACKAGE_VERSION: '${{ inputs.package-version }}'
+        ENVIRONMENT: '${{ inputs.environment }}'
+        SOURCES_PATH: '${{ inputs.sources-path }}'
+        LOCK_PATH: '${{ inputs.lock-path }}'
+        NODE_CONTRACT_PATH: '${{ inputs.node-contract-path }}'
+        REACHABILITY_PATH: '${{ inputs.reachability-path }}'
+        OUTPUT_PATH: '${{ inputs.output-path }}'
+        WORKING_DIRECTORY: '${{ inputs.working-directory }}'
+        UPDATE_LOCK: '${{ inputs.update-lock }}'
+        CHECK: '${{ inputs.check }}'
+        CUTOVER_PARITY: '${{ inputs.cutover-parity }}'
+        CURRENT_TREE: '${{ inputs.current-tree }}'
+        NODE_AUTH_TOKEN: '${{ inputs.node-auth-token }}'
+      run: 'bash "${{ github.action_path }}/run.sh"'

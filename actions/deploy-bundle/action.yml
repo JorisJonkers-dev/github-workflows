@@ -1,0 +1,68 @@
+name: 'Deploy Bundle'
+description: 'Validate and pack a first-party deploy directory as an OCI deploy bundle.'
+
+inputs:
+  deploy-dir:
+    description: 'Path to the caller-owned deploy directory.'
+    required: false
+    default: 'deploy'
+  images:
+    description: 'Newline- or comma-separated image refs to include in the bundle manifest.'
+    required: false
+    default: ''
+  package-version:
+    description: 'Version range for @jorisjonkers-dev/deploy-config-schema.'
+    required: false
+    default: '^0.6.0'
+  version:
+    description: 'Bundle version. Defaults to the ref name or a sha-prefixed development version.'
+    required: false
+    default: ''
+  bundle-name:
+    description: 'Bundle package basename. Defaults to the repository name.'
+    required: false
+    default: ''
+  output-directory:
+    description: 'Directory where the bundle tarball is written.'
+    required: false
+    default: ''
+  working-directory:
+    description: 'Directory where deploy-dir is resolved.'
+    required: false
+    default: '.'
+  node-auth-token:
+    description: 'Token with packages:read for installing @jorisjonkers-dev packages from GitHub Packages.'
+    required: false
+    default: ''
+
+outputs:
+  bundle-path:
+    description: 'Path to the packed deploy bundle tarball.'
+    value: '${{ steps.bundle.outputs.bundle-path }}'
+  bundle-name:
+    description: 'Resolved deploy bundle name.'
+    value: '${{ steps.bundle.outputs.bundle-name }}'
+  bundle-version:
+    description: 'Resolved deploy bundle version.'
+    value: '${{ steps.bundle.outputs.bundle-version }}'
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: 'actions/setup-node@v6'
+      with:
+        node-version: '24'
+
+    - name: 'Validate and pack deploy bundle'
+      id: 'bundle'
+      shell: 'bash'
+      env:
+        DEPLOY_DIR: '${{ inputs.deploy-dir }}'
+        IMAGES: '${{ inputs.images }}'
+        PACKAGE_VERSION: '${{ inputs.package-version }}'
+        VERSION: '${{ inputs.version }}'
+        BUNDLE_NAME: '${{ inputs.bundle-name }}'
+        OUTPUT_DIRECTORY: '${{ inputs.output-directory }}'
+        WORKING_DIRECTORY: '${{ inputs.working-directory }}'
+        NODE_AUTH_TOKEN: '${{ inputs.node-auth-token }}'
+      run: 'bash "${{ github.action_path }}/run.sh"'

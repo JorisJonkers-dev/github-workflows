@@ -26,7 +26,6 @@ install_schema_cli() {
     if [ -n "${NODE_AUTH_TOKEN:-}" ]; then
       printf '%s\n' "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}"
     fi
-    printf '%s\n' 'always-auth=true'
   } > "${npmrc}"
 
   echo "::group::Install @jorisjonkers-dev/deploy-config-schema@${version}" >&2
