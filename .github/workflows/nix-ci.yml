@@ -13,6 +13,21 @@ on:
         required: false
         type: string
         default: nix flake check --print-build-logs
+      format-command:
+        description: Format check command. Empty auto-detects alejandra or nixpkgs-fmt and runs it with --check.
+        required: false
+        type: string
+        default: ''
+      statix-command:
+        description: Statix lint command.
+        required: false
+        type: string
+        default: nix run nixpkgs#statix -- check .
+      deadnix-command:
+        description: Deadnix lint command. The default fails when dead code is found.
+        required: false
+        type: string
+        default: nix run nixpkgs#deadnix -- --fail .
       validate-command:
         description: Optional extra validation command.
         required: false
@@ -30,6 +45,38 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: cachix/install-nix-action@v31
+
+      - name: Check Nix formatting
+        working-directory: ${{ inputs.flake-path }}
+        env:
+          FORMAT_COMMAND: ${{ inputs.format-command }}
+        run: |
+          set -euo pipefail
+
+          format_command="$FORMAT_COMMAND"
+          if [ -z "$format_command" ]; then
+            if grep -Rqs "nixpkgs-fmt" flake.nix treefmt.toml .treefmt.toml 2>/dev/null; then
+              format_command="nix run nixpkgs#nixpkgs-fmt -- --check ."
+            else
+              format_command="nix run nixpkgs#alejandra -- --check ."
+            fi
+          fi
+
+          bash -euo pipefail -c "$format_command"
+
+      - name: Statix
+        if: ${{ inputs.statix-command != '' }}
+        working-directory: ${{ inputs.flake-path }}
+        env:
+          STATIX_COMMAND: ${{ inputs.statix-command }}
+        run: bash -euo pipefail -c "$STATIX_COMMAND"
+
+      - name: Deadnix
+        if: ${{ inputs.deadnix-command != '' }}
+        working-directory: ${{ inputs.flake-path }}
+        env:
+          DEADNIX_COMMAND: ${{ inputs.deadnix-command }}
+        run: bash -euo pipefail -c "$DEADNIX_COMMAND"
 
       - name: Validate
         if: ${{ inputs.validate-command != '' }}

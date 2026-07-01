@@ -28,10 +28,10 @@ should call released tags instead of branches.
 
 | Workflow | Purpose |
 | --- | --- |
-| `node-ci.yml` | Node install, lint, typecheck, test, and build jobs. |
-| `python-ci.yml` | Python lint/test workflow with overrideable commands. |
-| `nix-ci.yml` | Nix installer plus flake check and optional validation. |
-| `jvm-ci.yml` | Gradle lint/test workflow for JVM repositories. |
+| `node-ci.yml` | Node install, zero-warning ESLint, TypeScript, Prettier, test, and build jobs. |
+| `python-ci.yml` | Python Ruff, typecheck, and test workflow with overrideable commands. |
+| `nix-ci.yml` | Nix formatter, Statix, Deadnix, flake check, and optional validation. |
+| `jvm-ci.yml` | Gradle static lint/test workflow that fails Gradle warnings and deprecations. |
 | `docker-image-ci.yml` | Build a Docker image without publishing. |
 | `container-publish.yml` | Publish a GHCR image with release and sha tags. |
 | `publish-api-clients.yml` | Generate and publish API clients from an OpenAPI spec. |
@@ -55,11 +55,32 @@ jobs:
     uses: JorisJonkers-dev/github-workflows/.github/workflows/node-ci.yml@v0.7.3
     with:
       package-manager: pnpm
-      lint-command: pnpm lint
       test-command: pnpm test
+      build-command: pnpm build
     secrets:
       packages-token: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+## Zero-Warning Gates
+
+`node-ci.yml` always runs ESLint through the selected package manager with
+`--max-warnings=0`, runs TypeScript with `tsc --noEmit` unless
+`typecheck-command` is set, and runs `prettier --check` before optional
+caller-owned lint, test, and build commands.
+
+`python-ci.yml` defaults to `ruff check .`, `python -m mypy .`, and
+`python -m unittest discover`. Pyright consumers can set `typecheck-command` to
+their Pyright invocation.
+
+`nix-ci.yml` checks formatting with Alejandra by default, auto-switches to
+`nixpkgs-fmt --check` when the flake or treefmt config references it, then runs
+`statix check`, `deadnix --fail`, and `nix flake check`.
+
+`jvm-ci.yml` appends `--warning-mode=fail` to both lint and test Gradle
+invocations so Gradle warnings and deprecations fail CI. The default
+`lint-gradle-args` is now `detektMain detektTest ktlintCheck`; consumers without
+those tasks must pass their own static-only lint command. The default
+`test-gradle-args` remains `test`.
 
 ```yaml
 jobs:
