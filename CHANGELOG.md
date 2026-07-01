@@ -7,6 +7,13 @@
 * enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
 * fail Gradle warnings and deprecations while making JVM lint static-only by default
 
+## [0.10.1](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.10.0...v0.10.1) (2026-07-01)
+
+
+### Bug Fixes
+
+* **node-ci:** remove vendored actions tree before quality checks ([#24](https://github.com/JorisJonkers-dev/github-workflows/issues/24)) ([15e0845](https://github.com/JorisJonkers-dev/github-workflows/commit/15e0845b8f6dc72948884b47b8efca406cf38e3f))
+
 ## [0.10.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.9.0...v0.10.0) (2026-07-01)
 
 
