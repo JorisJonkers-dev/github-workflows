@@ -105,11 +105,10 @@ jobs:
           install-command: ${{ inputs.install-command }}
           github-packages-token: ${{ secrets.packages-token || github.token }}
 
-      # The vendored actions repo is only needed for setup-node above. Remove it before any
-      # quality command runs so workspace-wide linters/formatters (e.g. `eslint .`, `prettier
-      # --check .`) only ever see the consuming project's own files, never this CI machinery.
-      - name: Remove vendored CI actions before quality checks
-        run: rm -rf .github-workflows
+      # The vendored actions tree lives at .github-workflows/. Consuming projects exclude it from
+      # linting/formatting by default (it is in the shared eslint/ktlint config ignores, the
+      # scaffolded .gitignore — which antfu-eslint honours — and .prettierignore), so quality
+      # commands see only the project's own files without this workflow mutating the checkout.
 
       - name: Package check
         if: ${{ inputs.package-check-command != '' }}
