@@ -24,15 +24,25 @@ on:
         type: string
         default: ''
       lint-command:
-        description: Optional lint command.
+        description: Optional additional lint command run after the built-in zero-warning checks.
         required: false
         type: string
         default: ''
+      eslint-args:
+        description: ESLint arguments. The workflow always appends --max-warnings=0.
+        required: false
+        type: string
+        default: .
       typecheck-command:
-        description: Optional typecheck command.
+        description: TypeScript typecheck command. Empty uses tsc --noEmit through the selected package manager.
         required: false
         type: string
         default: ''
+      prettier-args:
+        description: Prettier check arguments.
+        required: false
+        type: string
+        default: .
       test-command:
         description: Optional test command.
         required: false
@@ -102,19 +112,93 @@ jobs:
           PACKAGE_CHECK_COMMAND: ${{ inputs.package-check-command }}
         run: bash -euo pipefail -c "$PACKAGE_CHECK_COMMAND"
 
-      - name: Lint
+      - name: ESLint
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          ESLINT_ARGS: ${{ inputs.eslint-args }}
+          PACKAGE_MANAGER: ${{ inputs.package-manager }}
+        run: |
+          set -euo pipefail
+
+          case "$PACKAGE_MANAGER" in
+            npm)
+              eslint_command="npm exec -- eslint ${ESLINT_ARGS} --max-warnings=0"
+              ;;
+            pnpm)
+              eslint_command="pnpm exec eslint ${ESLINT_ARGS} --max-warnings=0"
+              ;;
+            yarn)
+              eslint_command="yarn eslint ${ESLINT_ARGS} --max-warnings=0"
+              ;;
+            *)
+              echo "::error::Unsupported package-manager: $PACKAGE_MANAGER. Use npm, pnpm, or yarn."
+              exit 1
+              ;;
+          esac
+
+          bash -euo pipefail -c "$eslint_command"
+
+      - name: Typecheck
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          PACKAGE_MANAGER: ${{ inputs.package-manager }}
+          TYPECHECK_COMMAND: ${{ inputs.typecheck-command }}
+        run: |
+          set -euo pipefail
+
+          typecheck_command="$TYPECHECK_COMMAND"
+          if [ -z "$typecheck_command" ]; then
+            case "$PACKAGE_MANAGER" in
+              npm)
+                typecheck_command="npm exec -- tsc --noEmit"
+                ;;
+              pnpm)
+                typecheck_command="pnpm exec tsc --noEmit"
+                ;;
+              yarn)
+                typecheck_command="yarn tsc --noEmit"
+                ;;
+              *)
+                echo "::error::Unsupported package-manager: $PACKAGE_MANAGER. Use npm, pnpm, or yarn."
+                exit 1
+                ;;
+            esac
+          fi
+
+          bash -euo pipefail -c "$typecheck_command"
+
+      - name: Prettier
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          PACKAGE_MANAGER: ${{ inputs.package-manager }}
+          PRETTIER_ARGS: ${{ inputs.prettier-args }}
+        run: |
+          set -euo pipefail
+
+          case "$PACKAGE_MANAGER" in
+            npm)
+              prettier_command="npm exec -- prettier --check ${PRETTIER_ARGS}"
+              ;;
+            pnpm)
+              prettier_command="pnpm exec prettier --check ${PRETTIER_ARGS}"
+              ;;
+            yarn)
+              prettier_command="yarn prettier --check ${PRETTIER_ARGS}"
+              ;;
+            *)
+              echo "::error::Unsupported package-manager: $PACKAGE_MANAGER. Use npm, pnpm, or yarn."
+              exit 1
+              ;;
+          esac
+
+          bash -euo pipefail -c "$prettier_command"
+
+      - name: Additional lint
         if: ${{ inputs.lint-command != '' }}
         working-directory: ${{ inputs.working-directory }}
         env:
           LINT_COMMAND: ${{ inputs.lint-command }}
         run: bash -euo pipefail -c "$LINT_COMMAND"
-
-      - name: Typecheck
-        if: ${{ inputs.typecheck-command != '' }}
-        working-directory: ${{ inputs.working-directory }}
-        env:
-          TYPECHECK_COMMAND: ${{ inputs.typecheck-command }}
-        run: bash -euo pipefail -c "$TYPECHECK_COMMAND"
 
       - name: Test
         if: ${{ inputs.test-command != '' }}

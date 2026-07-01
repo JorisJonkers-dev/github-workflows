@@ -29,10 +29,10 @@ on:
         type: string
         default: --no-daemon
       lint-gradle-args:
-        description: Gradle tasks or arguments for lint checks.
+        description: Static-only Gradle lint tasks or arguments. Default assumes detekt and ktlint tasks; repos without them must pass their static-only lint command.
         required: false
         type: string
-        default: check
+        default: detektMain detektTest ktlintCheck
       test-gradle-args:
         description: Gradle tasks or arguments for tests.
         required: false
@@ -73,7 +73,7 @@ jobs:
 
       - name: Run lint checks
         working-directory: ${{ inputs.working-directory }}
-        run: ${{ inputs.gradle-command }} ${{ inputs.lint-gradle-args }} ${{ inputs.gradle-args }}
+        run: ${{ inputs.gradle-command }} ${{ inputs.lint-gradle-args }} ${{ inputs.gradle-args }} --warning-mode=fail
 
   test:
     name: JVM Test
@@ -96,4 +96,4 @@ jobs:
 
       - name: Run tests
         working-directory: ${{ inputs.working-directory }}
-        run: ${{ inputs.gradle-command }} ${{ inputs.test-gradle-args }} ${{ inputs.gradle-args }}
+        run: ${{ inputs.gradle-command }} ${{ inputs.test-gradle-args }} ${{ inputs.gradle-args }} --warning-mode=fail

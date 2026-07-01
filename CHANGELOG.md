@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
+* fail Gradle warnings and deprecations while making JVM lint static-only by default
+
 ## [0.9.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.8.1...v0.9.0) (2026-06-29)
 
 

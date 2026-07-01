@@ -14,10 +14,15 @@ on:
         type: string
         default: python -m pip install -r requirements-dev.txt
       lint-command:
-        description: Lint command.
+        description: Ruff check command. The command must fail on diagnostics.
         required: false
         type: string
         default: ruff check .
+      typecheck-command:
+        description: Type check command. Use mypy or pyright, and keep it failing on errors.
+        required: false
+        type: string
+        default: python -m mypy .
       test-command:
         description: Test command.
         required: false
@@ -56,6 +61,13 @@ jobs:
         env:
           LINT_COMMAND: ${{ inputs.lint-command }}
         run: bash -euo pipefail -c "$LINT_COMMAND"
+
+      - name: Typecheck
+        if: ${{ inputs.typecheck-command != '' }}
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          TYPECHECK_COMMAND: ${{ inputs.typecheck-command }}
+        run: bash -euo pipefail -c "$TYPECHECK_COMMAND"
 
       - name: Test
         if: ${{ inputs.test-command != '' }}
