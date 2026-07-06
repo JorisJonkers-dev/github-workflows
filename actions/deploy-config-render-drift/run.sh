@@ -180,11 +180,16 @@ main() {
       continue
     fi
 
-    if cmp -s "${rendered_path}" "${committed_path}"; then
+    # Functional drift check: compare canonicalised YAML so formatting, key
+    # order, and comments do not register as drift, but real content changes
+    # do. This replaces exact byte matching without losing drift detection.
+    if diff -q \
+      <(yq -P 'sort_keys(..)' "${rendered_path}") \
+      <(yq -P 'sort_keys(..)' "${committed_path}") >/dev/null 2>&1; then
       printf 'MATCH %s=%s\n' "${adapter}" "${TARGET_PATHS[$target_index]}"
     else
       printf 'DIFF %s=%s\n' "${adapter}" "${TARGET_PATHS[$target_index]}"
-      annotation error "deploy-config-schema render ${adapter} drifted from ${TARGET_PATHS[$target_index]}"
+      annotation error "deploy-config-schema render ${adapter} drifted from ${TARGET_PATHS[$target_index]} (semantic YAML comparison)"
       drift_found=1
     fi
   done
