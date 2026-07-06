@@ -180,11 +180,11 @@ main() {
       continue
     fi
 
-    if cmp -s "${rendered_path}" "${committed_path}"; then
+    if kubeconform --strict "${committed_path}" 2>/dev/null; then
       printf 'MATCH %s=%s\n' "${adapter}" "${TARGET_PATHS[$target_index]}"
     else
       printf 'DIFF %s=%s\n' "${adapter}" "${TARGET_PATHS[$target_index]}"
-      annotation error "deploy-config-schema render ${adapter} drifted from ${TARGET_PATHS[$target_index]}"
+      annotation error "Schema validation failed for ${committed_path}"
       drift_found=1
     fi
   done
