@@ -612,13 +612,14 @@ class MigrationReusableWorkflowSurfaceTest(unittest.TestCase):
         renovate = json.loads(RENOVATE_CONFIG.read_text(encoding="utf-8"))
         release = json.loads(RELEASE_CONFIG.read_text(encoding="utf-8"))
 
-        self.assertEqual(
-            renovate,
-            {
-                "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-                "extends": ["github>JorisJonkers-dev/renovate-config"],
-            },
-        )
+        # Verify the required base fields are present
+        self.assertEqual(renovate["$schema"], "https://docs.renovatebot.com/renovate-schema.json")
+        self.assertIn("github>JorisJonkers-dev/renovate-config", renovate["extends"])
+        # deploy-platform-d adds pinDigests and packageRules for SHA pinning
+        # Verify their presence and correctness rather than requiring exact equality
+        self.assertTrue(renovate.get("pinDigests"), "renovate.json must have pinDigests: true")
+        package_rules = renovate.get("packageRules", [])
+        self.assertGreater(len(package_rules), 0, "renovate.json must have packageRules for action pinning")
         self.assertEqual(release["bootstrap-sha"], "1eef0fe38c718b8263edb46b0bc4e2f1c6eb30a1")
         self.assertEqual(release["release-type"], "simple")
 

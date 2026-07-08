@@ -1,0 +1,107 @@
+{
+  "version": "1",
+  "categories": {
+    "ipv4_literal": {
+      "patterns": ["\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b"]
+    },
+    "ipv6_literal": {
+      "patterns": ["([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}"]
+    },
+    "cgnat": {
+      "patterns": [
+        "100\\.6[4-9]\\.",
+        "100\\.[7-9]\\d\\.",
+        "100\\.1[01]\\d\\.",
+        "100\\.12[0-7]\\."
+      ]
+    },
+    "rfc1918": {
+      "patterns": [
+        "192\\.168\\.",
+        "^10\\.",
+        "172\\.(1[6-9]|2\\d|3[01])\\."
+      ]
+    },
+    "k8s_join_tokens": {
+      "patterns": [
+        "apiServerEndpoint",
+        "node-token",
+        "agent-token",
+        "join-token",
+        "bootstrapToken",
+        "controlPlane"
+      ]
+    },
+    "ssh_keys": {
+      "patterns": [
+        "ssh-rsa",
+        "ssh-ed25519",
+        "-----BEGIN .* PRIVATE KEY-----"
+      ]
+    },
+    "vault_refs": {
+      "patterns": [
+        "vaultPath",
+        "vaultMount",
+        "vaultClaim",
+        "vaultPolicy",
+        "vaultRole",
+        "vaultNamespace",
+        "approle"
+      ]
+    },
+    "hardware_ids": {
+      "patterns": [
+        "([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}",
+        "/dev/sd[a-z]",
+        "wwn-",
+        "by-id/"
+      ]
+    },
+    "provider_ids": {
+      "patterns": [
+        "zone-id",
+        "provider-account",
+        "tailscale-device"
+      ]
+    }
+  },
+  "modes": {
+    "default": [
+      "ipv4_literal",
+      "ipv6_literal",
+      "cgnat",
+      "rfc1918",
+      "k8s_join_tokens",
+      "ssh_keys",
+      "vault_refs",
+      "hardware_ids",
+      "provider_ids"
+    ],
+    "deployment-artifact": [
+      "ipv4_literal",
+      "ipv6_literal",
+      "cgnat",
+      "rfc1918",
+      "k8s_join_tokens",
+      "ssh_keys",
+      "vault_refs",
+      "hardware_ids",
+      "provider_ids"
+    ],
+    "deployment-composition": [
+      "ipv4_literal",
+      "ipv6_literal",
+      "cgnat",
+      "rfc1918",
+      "k8s_join_tokens",
+      "ssh_keys",
+      "vault_refs",
+      "hardware_ids",
+      "provider_ids"
+    ]
+  },
+  "extra_paths": {
+    "deployment-artifact": ["deploy/raw-manifests/**"]
+  }
+}

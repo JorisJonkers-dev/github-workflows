@@ -90,7 +90,7 @@ jobs:
       - name: Install coverage
         run: |
           python3 -m venv .venv-tests
-          .venv-tests/bin/python -m pip install coverage==7.10.7
+          .venv-tests/bin/python -m pip install coverage==7.10.7 PyYAML==6.0.2
 
       - name: Run migration guard tests with coverage
         run: |

@@ -1,0 +1,40 @@
+name: Leak Scan
+description: >
+  Scan for sensitive data leaks using gitleaks, trufflehog, and the SC-8
+  canonical deny-list from data/leak-patterns.json.  Emits a SC-4
+  gate-summary.json that is always safe to upload.
+
+inputs:
+  mode:
+    description: Scan mode. One of "all-refs", "pr-diff", or "path".
+    required: true
+  paths:
+    description: Space-separated paths to scan (used in "path" mode).
+    required: false
+    default: .
+  base-ref:
+    description: Base git ref for "pr-diff" mode.
+    required: false
+    default: ""
+  head-ref:
+    description: Head git ref for "pr-diff" mode.
+    required: false
+    default: ""
+  deny-list:
+    description: SC-8 mode key (default | deployment-artifact | deployment-composition).
+    required: false
+    default: default
+
+runs:
+  using: composite
+  steps:
+    - name: Run leak scan
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        PATHS: ${{ inputs.paths }}
+        BASE_REF: ${{ inputs.base-ref }}
+        HEAD_REF: ${{ inputs.head-ref }}
+        DENY_LIST: ${{ inputs.deny-list }}
+        GW_ROOT: ${{ github.action_path }}/../..
+      run: bash "${{ github.action_path }}/run.sh"

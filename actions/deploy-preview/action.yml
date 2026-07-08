@@ -1,0 +1,48 @@
+name: Deploy Preview
+description: >
+  Render deployment fragments in validate-only mode, compute the SC-11
+  readiness scorecard, and post (or update) a sticky "Deploy Preview"
+  PR comment.  Emits gate-summary.json and deploy-preview-summary.md.
+
+inputs:
+  deploy-dir:
+    description: Path to the deploy/ directory inside the service repository.
+    required: false
+    default: deploy
+  schema-version:
+    description: Exact npm version of @jorisjonkers-dev/deploy-config-schema.
+    required: true
+  image-lock-path:
+    description: Path to images.lock.json (relative to service repo root).
+    required: false
+    default: deploy/images.lock.json
+  context-ref:
+    description: OCI digest ref for the cluster-deploy-context-public package.
+    required: true
+  environments:
+    description: Comma-separated list of target environment names.
+    required: false
+    default: production
+  comment:
+    description: Post (or update) a sticky Deploy Preview PR comment when "true".
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Render and preview deployment
+      shell: bash
+      env:
+        DEPLOY_DIR: ${{ inputs.deploy-dir }}
+        SCHEMA_VERSION: ${{ inputs.schema-version }}
+        IMAGE_LOCK_PATH: ${{ inputs.image-lock-path }}
+        CONTEXT_REF: ${{ inputs.context-ref }}
+        ENVIRONMENTS: ${{ inputs.environments }}
+        COMMENT: ${{ inputs.comment }}
+        GW_ROOT: ${{ github.action_path }}/../..
+        GITHUB_TOKEN: ${{ github.token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.number }}
+        NODE_AUTH_TOKEN: ${{ github.token }}
+      run: bash "${{ github.action_path }}/run.sh"

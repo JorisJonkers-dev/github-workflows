@@ -1,0 +1,87 @@
+name: Deploy Validate
+
+on:
+  workflow_call:
+    inputs:
+      deploy-dir:
+        description: Path to the deploy/ directory inside the service repository.
+        required: false
+        type: string
+        default: deploy
+      schema-version:
+        description: Exact npm version of @jorisjonkers-dev/deploy-config-schema.
+        required: true
+        type: string
+      image-lock-path:
+        description: Path to images.lock.json (relative to service repo root).
+        required: false
+        type: string
+        default: deploy/images.lock.json
+      context-ref:
+        description: OCI digest ref for the cluster-deploy-context-public package.
+        required: true
+        type: string
+      environments:
+        description: Comma-separated list of target environment names.
+        required: false
+        type: string
+        default: production
+      comment:
+        description: Post (or update) a sticky Deploy Preview PR comment when true.
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      preview-summary-artifact:
+        description: Artifact name containing the rendered deploy-preview-summary.md.
+        value: ${{ jobs.validate.outputs.preview-summary-artifact }}
+      gate-summary-artifact:
+        description: Artifact name containing the SC-4 gate-summary.json.
+        value: ${{ jobs.validate.outputs.gate-summary-artifact }}
+
+permissions:
+  contents: read
+  packages: read
+  pull-requests: write
+
+jobs:
+  validate:
+    name: Deploy Validate
+    runs-on: ubuntu-latest
+    outputs:
+      preview-summary-artifact: deploy-preview-summary
+      gate-summary-artifact: gate-summary-deploy-validate
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # Checkout github-workflows at the workflow SHA so the action is in sync
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: JorisJonkers-dev/github-workflows
+          ref: ${{ github.job_workflow_sha }}
+          path: .github-workflows
+          persist-credentials: false
+
+      - name: Render and preview deployment
+        uses: ./.github-workflows/actions/deploy-preview
+        with:
+          deploy-dir: ${{ inputs.deploy-dir }}
+          schema-version: ${{ inputs.schema-version }}
+          image-lock-path: ${{ inputs.image-lock-path }}
+          context-ref: ${{ inputs.context-ref }}
+          environments: ${{ inputs.environments }}
+          comment: ${{ inputs.comment }}
+
+      # Always upload both artifacts so downstream consumers can rely on them (SC-4)
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        if: always()
+        with:
+          name: gate-summary-deploy-validate
+          path: gate-summary.json
+
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        if: always()
+        with:
+          name: deploy-preview-summary
+          path: deploy-preview-summary.md

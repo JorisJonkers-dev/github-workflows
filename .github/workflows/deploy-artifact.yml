@@ -1,0 +1,170 @@
+name: Deploy Artifact
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to checkout the service repository at.
+        required: true
+        type: string
+      deploy-dir:
+        description: Path to the deploy/ directory inside the service repository.
+        required: false
+        type: string
+        default: deploy
+      artifact-name:
+        description: Logical name of the deployment artifact (e.g. "agents-api").
+        required: true
+        type: string
+      artifact-version:
+        description: Semver tag for the artifact release.
+        required: true
+        type: string
+      schema-version:
+        description: Exact npm version of @jorisjonkers-dev/deploy-config-schema (e.g. "0.16.0").
+        required: true
+        type: string
+      image-lock-artifact:
+        description: >
+          Artifact name containing images.lock.json uploaded by the caller.
+          Leave empty to use image-lock-path from the checked-out service repo.
+        required: false
+        type: string
+        default: ""
+      context-ref:
+        description: OCI digest ref for the cluster-deploy-context-public package.
+        required: true
+        type: string
+      environments:
+        description: Comma-separated list of target environment names.
+        required: false
+        type: string
+        default: production
+    outputs:
+      artifact-ref:
+        description: OCI ref of the published artifact (including digest).
+        value: ${{ jobs.render-and-publish.outputs.artifact-ref }}
+      artifact-digest:
+        description: sha256 digest of the published artifact.
+        value: ${{ jobs.render-and-publish.outputs.artifact-digest }}
+      render-hash:
+        description: SC-9 deterministic render hash.
+        value: ${{ jobs.render-and-publish.outputs.render-hash }}
+      gate-summary-artifact:
+        description: Artifact name of the SC-4 gate-summary for the deploy-artifact gate.
+        value: ${{ jobs.finalize.outputs.gate-summary-artifact }}
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: deploy-${{ github.repository }}-${{ inputs.artifact-version }}
+  cancel-in-progress: false
+
+jobs:
+  render-and-publish:
+    name: Render and Publish
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-ref: ${{ steps.publish.outputs.artifact-ref }}
+      artifact-digest: ${{ steps.publish.outputs.artifact-digest }}
+      render-hash: ${{ steps.render.outputs.render-hash }}
+
+    steps:
+      # Checkout the service repository at the requested ref
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.ref }}
+
+      # Checkout github-workflows at the workflow SHA so actions are in sync
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: JorisJonkers-dev/github-workflows
+          ref: ${{ github.job_workflow_sha }}
+          path: .github-workflows
+          persist-credentials: false
+
+      - name: Install tooling
+        shell: bash
+        run: bash .github-workflows/actions/deploy-artifact/install-tooling.sh
+
+      # Download the image lock artifact when supplied by the caller (R1-2).
+      # The lock is always consumed from deploy-dir/images.lock.json after download.
+      - name: Download image lock artifact
+        if: ${{ inputs.image-lock-artifact != '' }}
+        uses: actions/download-artifact@cc203385981b70ca67064bef7b51b0f4e50f8bff # v4.2.1
+        with:
+          name: ${{ inputs.image-lock-artifact }}
+          path: ${{ inputs.deploy-dir }}
+
+      - name: Render deployment fragments
+        id: render
+        uses: ./.github-workflows/actions/deploy-artifact
+        with:
+          deploy-dir: ${{ inputs.deploy-dir }}
+          artifact-name: ${{ inputs.artifact-name }}
+          schema-version: ${{ inputs.schema-version }}
+          image-lock-path: ${{ inputs.deploy-dir }}/images.lock.json
+          context-ref: ${{ inputs.context-ref }}
+          environments: ${{ inputs.environments }}
+
+      - name: Leak scan rendered output
+        uses: ./.github-workflows/actions/leak-scan
+        with:
+          mode: path
+          paths: out/
+          deny-list: deployment-artifact
+
+      - name: Publish artifact
+        id: publish
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ inputs.artifact-name }}
+          ARTIFACT_VERSION: ${{ inputs.artifact-version }}
+          RENDER_HASH: ${{ steps.render.outputs.render-hash }}
+        run: bash .github-workflows/actions/deploy-artifact/publish.sh
+
+      - name: Attest build provenance
+        if: ${{ steps.publish.outputs.artifact-digest != '' }}
+        uses: actions/attest-build-provenance@c4fbc648f330a2f05dd227e5b41538a91ae0e11a # v2.2.3
+        with:
+          subject-digest: ${{ steps.publish.outputs.artifact-digest }}
+          push-to-registry: true
+
+  finalize:
+    name: Finalize
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [render-and-publish]
+    outputs:
+      gate-summary-artifact: gate-summary-deploy-artifact
+
+    steps:
+      # Emit SC-4 gate summary from the render-and-publish job result.
+      # Runs even on failure — this is the fail-safe upload path.
+      - name: Emit SC-4 gate summary
+        shell: bash
+        env:
+          JOB_RESULT: ${{ needs.render-and-publish.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$JOB_RESULT" == "success" ]]; then
+            status="pass"
+            reason="artifact-published"
+          else
+            status="fail"
+            reason="render-or-publish-failed"
+          fi
+          printf '{"gate":"deploy-artifact","check_name":"Deploy Artifact","status":"%s","reason":"%s","flaky_candidates":[],"actor_decision":"none","redacted":false}\n' \
+            "$status" "$reason" \
+            | python3 -m json.tool --indent 2 > gate-summary.json
+
+      # Always upload gate-summary-deploy-artifact, even when render failed (SC-4)
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        if: always()
+        with:
+          name: gate-summary-deploy-artifact
+          path: gate-summary.json
