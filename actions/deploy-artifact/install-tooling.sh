@@ -22,7 +22,7 @@ verify_sha256() {
 install_cosign() {
   # cosign v2.4.3 linux/amd64
   local version="2.4.3"
-  local sha256="c34d8a0e60adf77ec39a10bedb28a5baa7b9e81b9f7ee01c5fc2f53f5d00d65c"
+  local sha256="caaad125acef1cb81d58dcdc454a1e429d09a750d1e9e2b3ed1aed8964454708"
   local url="https://github.com/sigstore/cosign/releases/download/v${version}/cosign-linux-amd64"
   curl -sSfL "$url" -o /tmp/cosign
   verify_sha256 /tmp/cosign "$sha256"
@@ -34,7 +34,7 @@ install_cosign() {
 install_syft() {
   # syft v1.28.0 linux amd64
   local version="1.28.0"
-  local sha256="d63f7aa6af7a1e68f5ea9be2c5b86a1f51d1ddea3fae4a1218cf3feae3e10b1c"
+  local sha256="3edee7fe1ceb1f78360e547f57048930d57f00c7ec3d0b8bdfb902805f048468"
   local url="https://github.com/anchore/syft/releases/download/v${version}/syft_${version}_linux_amd64.tar.gz"
   curl -sSfL "$url" -o /tmp/syft.tar.gz
   verify_sha256 /tmp/syft.tar.gz "$sha256"
@@ -47,7 +47,7 @@ install_syft() {
 install_oras() {
   # oras v1.2.3 linux amd64
   local version="1.2.3"
-  local sha256="c22a7b5f05f3f4ced3e8d50e2b4649c6714b1ad8a17d8e3d9c62bd9432f9e66a"
+  local sha256="b4efc97a91f471f323f193ea4b4d63d8ff443ca3aab514151a30751330852827"
   local url="https://github.com/oras-project/oras/releases/download/v${version}/oras_${version}_linux_amd64.tar.gz"
   curl -sSfL "$url" -o /tmp/oras.tar.gz
   verify_sha256 /tmp/oras.tar.gz "$sha256"
@@ -60,7 +60,7 @@ install_oras() {
 install_kubeconform() {
   # kubeconform v0.7.0 linux amd64
   local version="0.7.0"
-  local sha256="1ed55e96dc8f95ad7b3f21be44c00e3b3fc62a8d12ec6a9474b18a501f84f601"
+  local sha256="c31518ddd122663b3f3aa874cfe8178cb0988de944f29c74a0b9260920d115d3"
   local url="https://github.com/yannh/kubeconform/releases/download/v${version}/kubeconform-linux-amd64.tar.gz"
   curl -sSfL "$url" -o /tmp/kubeconform.tar.gz
   verify_sha256 /tmp/kubeconform.tar.gz "$sha256"
@@ -73,7 +73,7 @@ install_kubeconform() {
 install_kustomize() {
   # kustomize v5.6.0 linux amd64
   local version="5.6.0"
-  local sha256="e8fc6a33fd15c4e10ad55dae02a3b3e22c50efefe83fadd84a2b4ce40e85ab2f"
+  local sha256="54e4031ddc4e7fc59e408da29e7c646e8e57b8088c51b84b3df0864f47b5148f"
   local url="https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${version}/kustomize_v${version}_linux_amd64.tar.gz"
   curl -sSfL "$url" -o /tmp/kustomize.tar.gz
   verify_sha256 /tmp/kustomize.tar.gz "$sha256"
@@ -86,7 +86,7 @@ install_kustomize() {
 install_yq() {
   # yq v4.45.3 linux amd64
   local version="4.45.3"
-  local sha256="c1a4c14b8dfd9c2e7ed2c1a7e0e20d37ff7a6413e87f0af5fa69ec93a0742b2d"
+  local sha256="2c621387e61e7f6bd14e85077c4bce36bc99d198804721501a1f14c236f3a2a9"
   local url="https://github.com/mikefarah/yq/releases/download/v${version}/yq_linux_amd64"
   curl -sSfL "$url" -o /tmp/yq
   verify_sha256 /tmp/yq "$sha256"
