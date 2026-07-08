@@ -96,13 +96,36 @@ install_yq() {
 }
 
 main() {
+  local only=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --only)
+        only="${2:?--only requires a comma-separated tool list}"
+        shift 2
+        ;;
+      *)
+        fail "unknown argument: $1 (usage: install-tooling.sh [--only oras,yq,...])"
+        ;;
+    esac
+  done
+
+  local -a tools=(oras cosign syft kubeconform kustomize yq)
+  if [[ -n "$only" ]]; then
+    IFS=',' read -ra tools <<< "$only"
+  fi
+
   printf '::group::Installing deployment tooling\n'
-  install_oras
-  install_cosign
-  install_syft
-  install_kubeconform
-  install_kustomize
-  install_yq
+  for tool in "${tools[@]}"; do
+    case "$tool" in
+      oras) install_oras ;;
+      cosign) install_cosign ;;
+      syft) install_syft ;;
+      kubeconform) install_kubeconform ;;
+      kustomize) install_kustomize ;;
+      yq) install_yq ;;
+      *) fail "unknown tool: ${tool} (valid: oras,cosign,syft,kubeconform,kustomize,yq)" ;;
+    esac
+  done
   printf '::endgroup::\n'
 }
 

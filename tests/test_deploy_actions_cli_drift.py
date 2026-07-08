@@ -12,6 +12,11 @@ Test groups:
   T-CLI4: deploy-artifact positional args — same constraint.
   T-CLI5: Silent || true removal — render and emit-contract in deploy-preview
           must not use unconditional `|| true`; failures must be captured.
+  T-CLI6: Context package handling — both actions pull the context by digest
+          via oras (service repos never hold the context), discover
+          cluster-context-public.yml in the pulled tree via the
+          find_cluster_context helper, and pass the digest ref to --context
+          with the pulled file as --context-path.
 """
 from __future__ import annotations
 
@@ -341,20 +346,31 @@ class DeployPreviewPositionalArgTest(unittest.TestCase):
                 f"(should pass the deploy-dir only): {inv!r}",
             )
 
-    def test_render_uses_context_flags_not_context_dir_alone(self) -> None:
+    def test_render_uses_context_and_context_path_flags(self) -> None:
         """
-        In preview mode (no oras pull) the script may use --context-dir or
-        --context + --context-path.  Neither --context-dir nor --context is
-        mandatory on its own; but at least one context-passing flag must be
-        present in every render invocation.
+        The preview pulls the context package via oras and passes it to render
+        with --context <digest-ref> + --context-path <pulled-file> so the
+        recorded ref stays the digest-pinned one. Service repos never hold the
+        context file, so --context-dir must not be used (it records a
+        local:// ref instead of the digest-pinned one).
         """
         invocations = _extract_render_fragment_invocations(self.text)
         for inv in invocations:
             flags = _flags_in_invocation(inv)
-            context_flags = flags & {"--context-dir", "--context", "--context-path"}
-            self.assertTrue(
-                context_flags,
-                f"render invocation in deploy-preview missing context flag(s): {inv!r}",
+            self.assertIn(
+                "--context",
+                flags,
+                f"deploy-preview render invocation missing --context flag: {inv!r}",
+            )
+            self.assertIn(
+                "--context-path",
+                flags,
+                f"deploy-preview render invocation missing --context-path flag: {inv!r}",
+            )
+            self.assertNotIn(
+                "--context-dir",
+                flags,
+                f"deploy-preview render must not use --context-dir (loses the digest ref): {inv!r}",
             )
 
 
@@ -485,6 +501,201 @@ class SilentFailureRemovalTest(unittest.TestCase):
             self.preview_text,
             "deploy-preview/run.sh must exit nonzero with E_EMIT_CONTRACT_FAILED when rendering is impossible",
         )
+
+
+# ---------------------------------------------------------------------------
+# T-CLI6: Context package handling — oras pull + pulled-layout discovery
+# ---------------------------------------------------------------------------
+
+
+DEPLOY_PREVIEW_ACTION = ROOT / "actions/deploy-preview/action.yml"
+
+
+class ContextPackagePullTest(unittest.TestCase):
+    """
+    Service repos never hold the cluster context; the ACTION fetches it by
+    digest. The CLI never pulls (--context records the ref, --context-path
+    reads a local file), so each action must oras-pull once and pass the
+    discovered file path.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.preview_text = read_script(DEPLOY_PREVIEW_RUN)
+        cls.artifact_text = read_script(DEPLOY_ARTIFACT_RUN)
+        cls.preview_action = DEPLOY_PREVIEW_ACTION.read_text(encoding="utf-8")
+
+    def test_deploy_preview_pulls_context_via_oras(self) -> None:
+        self.assertRegex(
+            self.preview_text,
+            r"oras pull\s+\"\$context_ref\"",
+            "deploy-preview/run.sh must oras pull the context package by digest ref",
+        )
+
+    def test_deploy_preview_fails_loud_on_pull_failure(self) -> None:
+        self.assertIn(
+            "E_CONTEXT_PULL_FAILED",
+            self.preview_text,
+            "deploy-preview/run.sh must fail loud when the oras pull fails",
+        )
+
+    def test_deploy_preview_fails_loud_when_context_file_missing(self) -> None:
+        self.assertIn(
+            "E_CONTEXT_FILE_MISSING",
+            self.preview_text,
+            "deploy-preview/run.sh must fail loud when cluster-context-public.yml is absent from the pulled tree",
+        )
+
+    def test_deploy_artifact_fails_loud_when_context_file_missing(self) -> None:
+        self.assertIn(
+            "E_CONTEXT_FILE_MISSING",
+            self.artifact_text,
+            "deploy-artifact/run.sh must fail loud when cluster-context-public.yml is absent from the pulled tree",
+        )
+
+    def test_scripts_do_not_hardcode_pulled_context_root_path(self) -> None:
+        """
+        The pulled layout carries cluster-context-public.yml under
+        context/public/; scripts must discover the file rather than hardcode
+        <pull-root>/cluster-context-public.yml.
+        """
+        for name, text in (
+            ("deploy-preview", self.preview_text),
+            ("deploy-artifact", self.artifact_text),
+        ):
+            self.assertNotRegex(
+                text,
+                r"context-pkg/cluster-context-public\.yml",
+                f"{name}/run.sh hardcodes the pulled context file at the pull root; "
+                "use find_cluster_context instead",
+            )
+
+    def test_scripts_define_discovery_helper(self) -> None:
+        for name, text in (
+            ("deploy-preview", self.preview_text),
+            ("deploy-artifact", self.artifact_text),
+        ):
+            self.assertIn(
+                "find_cluster_context()",
+                text,
+                f"{name}/run.sh must define the find_cluster_context discovery helper",
+            )
+
+    def test_preview_action_installs_oras(self) -> None:
+        """
+        The preview action must install oras (reusing the pinned deploy-artifact
+        installer) before run.sh executes, since ubuntu-latest runners do not
+        ship oras.
+        """
+        self.assertIn(
+            "install-tooling.sh",
+            self.preview_action,
+            "deploy-preview/action.yml must run install-tooling.sh before run.sh",
+        )
+        self.assertIn(
+            "oras",
+            self.preview_action,
+            "deploy-preview/action.yml tooling step must include oras",
+        )
+
+
+class FindClusterContextHelperTest(unittest.TestCase):
+    """
+    Behavioral tests for the find_cluster_context helper, executed against the
+    real run.sh files (sourced; main is guarded behind BASH_SOURCE check).
+    """
+
+    def _run_helper(self, script: Path, layout: list[str]) -> subprocess.CompletedProcess[str]:
+        """
+        Create a temp pulled-tree containing the given relative file paths and
+        invoke find_cluster_context from the sourced script against it.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "pulled"
+            root.mkdir()
+            for rel in layout:
+                target = root / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("apiVersion: deployment.jorisjonkers.dev/cluster-context\n", encoding="utf-8")
+            bash = (
+                f'source "{script}" && find_cluster_context "{root}"'
+            )
+            return subprocess.run(
+                ["bash", "-c", bash],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+    def test_sourcing_run_sh_does_not_execute_main(self) -> None:
+        """The BASH_SOURCE guard must prevent main from running when sourced."""
+        for script in (DEPLOY_PREVIEW_RUN, DEPLOY_ARTIFACT_RUN):
+            result = subprocess.run(
+                ["bash", "-c", f'source "{script}" && echo SOURCED_OK'],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                # No CONTEXT_REF etc. in env: if main ran, it would fail on
+                # the :? parameter expansions instead of printing SOURCED_OK.
+                env={"PATH": "/usr/bin:/bin"},
+            )
+            self.assertEqual(
+                result.returncode,
+                0,
+                f"sourcing {script} must not execute main: {result.stderr}",
+            )
+            self.assertIn("SOURCED_OK", result.stdout)
+
+    def test_finds_file_under_context_public(self) -> None:
+        """The published layout carries the file under context/public/."""
+        for script in (DEPLOY_PREVIEW_RUN, DEPLOY_ARTIFACT_RUN):
+            result = self._run_helper(script, ["context/public/cluster-context-public.yml"])
+            self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
+            self.assertTrue(
+                result.stdout.endswith("context/public/cluster-context-public.yml"),
+                f"{script}: unexpected path: {result.stdout!r}",
+            )
+
+    def test_prefers_context_public_over_other_matches(self) -> None:
+        """When multiple matches exist, the context/public/ one wins."""
+        for script in (DEPLOY_PREVIEW_RUN, DEPLOY_ARTIFACT_RUN):
+            result = self._run_helper(
+                script,
+                [
+                    "cluster-context-public.yml",
+                    "context/public/cluster-context-public.yml",
+                    "other/cluster-context-public.yml",
+                ],
+            )
+            self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
+            self.assertIn(
+                "context/public/cluster-context-public.yml",
+                result.stdout,
+                f"{script}: must prefer the context/public/ match: {result.stdout!r}",
+            )
+
+    def test_falls_back_to_any_match_when_no_context_public(self) -> None:
+        """A root-level or differently nested file is still found."""
+        for script in (DEPLOY_PREVIEW_RUN, DEPLOY_ARTIFACT_RUN):
+            result = self._run_helper(script, ["cluster-context-public.yml"])
+            self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
+            self.assertTrue(
+                result.stdout.endswith("cluster-context-public.yml"),
+                f"{script}: unexpected path: {result.stdout!r}",
+            )
+
+    def test_returns_nonzero_when_absent(self) -> None:
+        """No match anywhere in the tree -> nonzero so callers can fail loud."""
+        for script in (DEPLOY_PREVIEW_RUN, DEPLOY_ARTIFACT_RUN):
+            result = self._run_helper(script, ["context/public/other-file.yml"])
+            self.assertNotEqual(
+                result.returncode,
+                0,
+                f"{script}: find_cluster_context must return nonzero when the file is absent",
+            )
+            self.assertEqual(result.stdout, "", f"{script}: no path must be printed on miss")
 
 
 if __name__ == "__main__":

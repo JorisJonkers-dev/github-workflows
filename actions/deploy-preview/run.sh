@@ -17,6 +17,28 @@ warn() {
   printf '::warning::%s\n' "$*" >&2
 }
 
+# find_cluster_context <root>: locate cluster-context-public.yml inside a
+# pulled context package tree. The published artifact carries it under
+# context/public/, but the layout is discovered rather than hardcoded so a
+# layout change fails loud in one place. Prefers a context/public/ match,
+# falls back to the first match anywhere in the tree. Prints the path;
+# returns 1 if no match exists.
+find_cluster_context() {
+  local root="$1"
+  local matches
+  matches=$(find "$root" -type f -name 'cluster-context-public.yml' 2>/dev/null | sort || true)
+  if [[ -z "$matches" ]]; then
+    return 1
+  fi
+  local preferred
+  preferred=$(printf '%s\n' "$matches" | grep '/context/public/' | head -1 || true)
+  if [[ -n "$preferred" ]]; then
+    printf '%s' "$preferred"
+  else
+    printf '%s' "$(printf '%s\n' "$matches" | head -1)"
+  fi
+}
+
 emit_gate_summary() {
   local gate="$1"
   local check_name="$2"
@@ -373,10 +395,31 @@ main() {
 
   mkdir -p out/manifests/preview
 
+  # (0) Pull the context package once via oras. Service repos never hold the
+  # cluster context — the action fetches it by digest. The CLI never pulls:
+  # --context records the digest ref, --context-path reads a local file.
+  local context_root="${RUNNER_TEMP:-/tmp}/deploy-preview-context"
+  rm -rf "$context_root"
+  mkdir -p "$context_root"
+  if ! oras pull "$context_ref" --output "$context_root" 2>&1; then
+    emit_gate_summary "deploy-validate" "Deploy Validate" "fail" \
+      "context-pull-failed" "none"
+    fail "E_CONTEXT_PULL_FAILED: oras pull ${context_ref} failed; rendering impossible"
+  fi
+
+  # Locate cluster-context-public.yml in the pulled tree (usually under
+  # context/public/); fail loud with the tree listing if it is absent.
+  local context_file
+  if ! context_file=$(find_cluster_context "$context_root"); then
+    emit_gate_summary "deploy-validate" "Deploy Validate" "fail" \
+      "context-file-missing" "none"
+    fail "E_CONTEXT_FILE_MISSING: cluster-context-public.yml not found in pulled context package ${context_ref}; pulled files: $(find "$context_root" -type f 2>/dev/null | tr '\n' ' ')"
+  fi
+
   # (1) Render all 5 fragments per environment.
   # The CLI takes a single --env value; loop over environments.
-  # In preview mode the context package is not pulled via oras; pass via
-  # --context-ref (digest ref) + --context-path (local file in deploy-dir).
+  # Pass the pulled context file via --context <digest-ref> + --context-path
+  # so the recorded ref stays the digest-pinned one.
   # Render failures are captured and surfaced in the scorecard; the action
   # exits nonzero at the end if any fragment failed (rendering impossible).
   local IFS_save="$IFS"
@@ -403,7 +446,7 @@ main() {
       deploy-config-schema render "$fragment" "$deploy_dir" \
         --env "$env" \
         --context "$context_ref" \
-        --context-path "${deploy_dir}/cluster-context-public.yml" \
+        --context-path "$context_file" \
         --images "$image_lock_path" \
         --output "out/manifests/preview/${env}" \
         2>"$render_stderr_file" || render_exit=$?
@@ -431,7 +474,7 @@ main() {
     --images "$image_lock_path" \
     --context-ref "$context_ref" \
     --deployment "${deploy_dir}/deployment.yml" \
-    --context "${deploy_dir}/cluster-context-public.yml" \
+    --context "$context_file" \
     --provenance-verified false \
     --out out/artifact-contract.yaml \
     2>"$emit_stderr_file" || emit_exit=$?
@@ -499,4 +542,8 @@ main() {
   fi
 }
 
-main "$@"
+# Allow sourcing for unit tests of the helpers (find_cluster_context, ...);
+# execute main only when invoked directly.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi
