@@ -1,0 +1,50 @@
+name: Deploy Artifact Render
+description: >
+  Install deploy-config-schema, render the five deployment fragments, validate
+  with kubeconform/kustomize, and emit the artifact contract.  Writes all
+  outputs into ./out/ relative to the working directory.
+
+inputs:
+  deploy-dir:
+    description: Path to the deploy/ directory inside the service repository.
+    required: false
+    default: deploy
+  artifact-name:
+    description: Logical name of the deployment artifact (e.g. "agents-api").
+    required: true
+  schema-version:
+    description: Exact npm version of @jorisjonkers-dev/deploy-config-schema.
+    required: true
+  image-lock-path:
+    description: Path to images.lock.json (relative to service repo root).
+    required: false
+    default: deploy/images.lock.json
+  context-ref:
+    description: OCI digest ref for the cluster-deploy-context-public package.
+    required: true
+  environments:
+    description: Comma-separated list of target environment names.
+    required: false
+    default: production
+
+outputs:
+  render-hash:
+    description: SC-9 deterministic render hash emitted by emit-contract.
+    value: ${{ steps.render.outputs.render-hash }}
+
+runs:
+  using: composite
+  steps:
+    - name: Render deployment fragments
+      id: render
+      shell: bash
+      env:
+        DEPLOY_DIR: ${{ inputs.deploy-dir }}
+        ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        SCHEMA_VERSION: ${{ inputs.schema-version }}
+        IMAGE_LOCK_PATH: ${{ inputs.image-lock-path }}
+        CONTEXT_REF: ${{ inputs.context-ref }}
+        ENVIRONMENTS: ${{ inputs.environments }}
+        GW_ROOT: ${{ github.action_path }}/../..
+        NODE_AUTH_TOKEN: ${{ github.token }}
+      run: bash "${{ github.action_path }}/run.sh"

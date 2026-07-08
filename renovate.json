@@ -1,4 +1,21 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>JorisJonkers-dev/renovate-config"]
+  "extends": ["github>JorisJonkers-dev/renovate-config"],
+  "pinDigests": true,
+  "packageRules": [
+    {
+      "description": "Group all GitHub Actions SHA-pinned digest updates into one weekly PR",
+      "matchManagers": ["github-actions"],
+      "matchPackagePatterns": ["*"],
+      "excludePackageNames": ["JorisJonkers-dev/github-workflows"],
+      "groupName": "github-actions pinned digests",
+      "schedule": ["before 9am on monday"]
+    },
+    {
+      "description": "JorisJonkers-dev/github-workflows: track semver tags, do NOT pin to digest",
+      "matchPackageNames": ["JorisJonkers-dev/github-workflows"],
+      "pinDigests": false,
+      "versioning": "semver"
+    }
+  ]
 }
