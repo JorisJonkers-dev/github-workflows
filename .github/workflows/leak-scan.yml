@@ -44,12 +44,12 @@ jobs:
 
     steps:
       # fetch-depth: 0 is required for all-refs and pr-diff modes
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
 
       # Checkout github-workflows at the workflow SHA so the action is in sync
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: JorisJonkers-dev/github-workflows
           ref: ${{ github.job_workflow_sha }}
