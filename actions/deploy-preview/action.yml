@@ -31,6 +31,12 @@ inputs:
 runs:
   using: composite
   steps:
+    # The preview pulls the cluster context package by digest; oras and yq are
+    # required. Reuse the pinned installer from the deploy-artifact action.
+    - name: Install deployment tooling (oras, yq)
+      shell: bash
+      run: bash "${{ github.action_path }}/../deploy-artifact/install-tooling.sh" --only oras,yq
+
     - name: Render and preview deployment
       shell: bash
       env:

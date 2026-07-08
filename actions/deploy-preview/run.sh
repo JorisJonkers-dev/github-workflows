@@ -17,6 +17,28 @@ warn() {
   printf '::warning::%s\n' "$*" >&2
 }
 
+# find_cluster_context <root>: locate cluster-context-public.yml inside a
+# pulled context package tree. The published artifact carries it under
+# context/public/, but the layout is discovered rather than hardcoded so a
+# layout change fails loud in one place. Prefers a context/public/ match,
+# falls back to the first match anywhere in the tree. Prints the path;
+# returns 1 if no match exists.
+find_cluster_context() {
+  local root="$1"
+  local matches
+  matches=$(find "$root" -type f -name 'cluster-context-public.yml' 2>/dev/null | sort || true)
+  if [[ -z "$matches" ]]; then
+    return 1
+  fi
+  local preferred
+  preferred=$(printf '%s\n' "$matches" | grep '/context/public/' | head -1 || true)
+  if [[ -n "$preferred" ]]; then
+    printf '%s' "$preferred"
+  else
+    printf '%s' "$(printf '%s\n' "$matches" | head -1)"
+  fi
+}
+
 emit_gate_summary() {
   local gate="$1"
   local check_name="$2"
@@ -70,6 +92,13 @@ install_schema_cli() {
 # Scorecard computation (SC-11)
 # ---------------------------------------------------------------------------
 
+# count_lines <output>: count non-empty lines in a string without || echo 0 pitfall.
+# grep -c already returns 0 when no matches; the || true prevents set -e from
+# firing on exit code 1 (no match), and the result is a single clean integer.
+count_lines() {
+  printf '%s' "$1" | grep -c '^.' || true
+}
+
 compute_scorecard() {
   local deployment_yml="$1"
   local contract_yaml="$2"
@@ -110,9 +139,13 @@ compute_scorecard() {
     fi
     if [[ "$route_owner_authmode_declared" == "pass" ]]; then
       if yq '.spec.workloads[].routes[].authMode // ""' "$deployment_yml" 2>/dev/null | grep -q '^$'; then
+        local authmode_out
+        authmode_out=$(yq '.spec.workloads[].routeDefaults.authMode // ""' "$deployment_yml" \
+          2>/dev/null || true)
         local has_defaults=0
-        has_defaults=$(yq '.spec.workloads[].routeDefaults.authMode // ""' "$deployment_yml" \
-          2>/dev/null | grep -c '^[a-z]' || echo 0)
+        has_defaults=$(count_lines "$authmode_out")
+        # count_lines counts all lines; re-filter to non-empty alpha values
+        has_defaults=$(printf '%s' "$authmode_out" | grep -c '^[a-z]' || true)
         if [[ "$has_defaults" -eq 0 ]]; then
           route_owner_authmode_declared="fail"
         fi
@@ -122,13 +155,16 @@ compute_scorecard() {
 
   # rollback_retention_acknowledged
   local rollback_retention_acknowledged="fail"
+  local ack_out
+  ack_out=$(yq '.spec.workloads[].rollbackTargetRetention.acknowledged' "$deployment_yml" \
+    2>/dev/null || true)
   local ack=0
-  ack=$(yq '.spec.workloads[].rollbackTargetRetention.acknowledged' "$deployment_yml" \
-    2>/dev/null | grep -c 'true' || echo 0)
+  ack=$(printf '%s' "$ack_out" | grep -c 'true' || true)
   local days=0
   days=$(yq '.spec.workloads[].rollbackTargetRetention.minimumDays' "$deployment_yml" \
-    2>/dev/null | sort -n | tail -1 || echo 0)
-  if [[ "$ack" -gt 0 && "${days:-0}" -ge 90 ]]; then
+    2>/dev/null | sort -n | tail -1 || true)
+  days="${days:-0}"
+  if [[ "$ack" -gt 0 && "${days}" -ge 90 ]]; then
     rollback_retention_acknowledged="pass"
   fi
 
@@ -140,9 +176,11 @@ compute_scorecard() {
 
   # stateful_policy_declared: not_applicable if no stateful workloads
   local stateful_policy_declared="not_applicable"
+  local stateful_out
+  stateful_out=$(yq '.spec.workloads[] | select(.stateful == true) | .name' "$deployment_yml" \
+    2>/dev/null || true)
   local has_stateful=0
-  has_stateful=$(yq '.spec.workloads[] | select(.stateful == true) | .name' "$deployment_yml" \
-    2>/dev/null | grep -c '.' || echo 0)
+  has_stateful=$(printf '%s' "$stateful_out" | grep -c '.' || true)
   if [[ "$has_stateful" -gt 0 ]]; then
     stateful_policy_declared="pass"
     if yq '.spec.workloads[] | select(.stateful == true) | .migrationPolicy // ""' \
@@ -153,9 +191,11 @@ compute_scorecard() {
 
   # raw_manifests_guarded: not_applicable if no rawManifests.enabled workloads
   local raw_manifests_guarded="not_applicable"
+  local raw_out
+  raw_out=$(yq '.spec.workloads[] | select(.rawManifests.enabled == true) | .name' \
+    "$deployment_yml" 2>/dev/null || true)
   local has_raw=0
-  has_raw=$(yq '.spec.workloads[] | select(.rawManifests.enabled == true) | .name' \
-    "$deployment_yml" 2>/dev/null | grep -c '.' || echo 0)
+  has_raw=$(printf '%s' "$raw_out" | grep -c '.' || true)
   if [[ "$has_raw" -gt 0 ]]; then
     raw_manifests_guarded="pass"
     if [[ ! -f out/raw-manifests-guard.json ]]; then
@@ -355,37 +395,118 @@ main() {
 
   mkdir -p out/manifests/preview
 
-  # (1) Render all 5 fragments in validate-only mode
-  for fragment in \
-    kubernetes-workload-fragment \
-    traefik-route-fragment \
-    gatus-endpoint-fragment \
-    edge-catalog-fragment \
-    image-metadata-fragment
-  do
-    deploy-config-schema render "$fragment" "${deploy_dir}/deployment.yml" \
-      --env "$environments" \
-      --context-ref "$context_ref" \
-      --images "$image_lock_path" \
-      --output out/manifests/preview \
-      2>&1 || true
-    # validate-only: failures are surfaced in scorecard, not fatal here
+  # (0) Pull the context package once via oras. Service repos never hold the
+  # cluster context — the action fetches it by digest. The CLI never pulls:
+  # --context records the digest ref, --context-path reads a local file.
+  local context_root="${RUNNER_TEMP:-/tmp}/deploy-preview-context"
+  rm -rf "$context_root"
+  mkdir -p "$context_root"
+  if ! oras pull "$context_ref" --output "$context_root" 2>&1; then
+    emit_gate_summary "deploy-validate" "Deploy Validate" "fail" \
+      "context-pull-failed" "none"
+    fail "E_CONTEXT_PULL_FAILED: oras pull ${context_ref} failed; rendering impossible"
+  fi
+
+  # Locate cluster-context-public.yml in the pulled tree (usually under
+  # context/public/); fail loud with the tree listing if it is absent.
+  local context_file
+  if ! context_file=$(find_cluster_context "$context_root"); then
+    emit_gate_summary "deploy-validate" "Deploy Validate" "fail" \
+      "context-file-missing" "none"
+    fail "E_CONTEXT_FILE_MISSING: cluster-context-public.yml not found in pulled context package ${context_ref}; pulled files: $(find "$context_root" -type f 2>/dev/null | tr '\n' ' ')"
+  fi
+
+  # (1) Render all 5 fragments per environment.
+  # The CLI takes a single --env value; loop over environments.
+  # Pass the pulled context file via --context <digest-ref> + --context-path
+  # so the recorded ref stays the digest-pinned one.
+  # Render failures are captured and surfaced in the scorecard; the action
+  # exits nonzero at the end if any fragment failed (rendering impossible).
+  local IFS_save="$IFS"
+  IFS=',' read -ra preview_envs <<< "${environments}"
+  IFS="$IFS_save"
+
+  # Track per-env render failures for scorecard
+  declare -A render_failures=()
+
+  for env in "${preview_envs[@]}"; do
+    env="$(printf '%s' "$env" | xargs 2>/dev/null || printf '%s' "$env")"
+    [[ -z "$env" ]] && continue
+    mkdir -p "out/manifests/preview/${env}"
+    for fragment in \
+      kubernetes-workload-fragment \
+      traefik-route-fragment \
+      gatus-endpoint-fragment \
+      edge-catalog-fragment \
+      image-metadata-fragment
+    do
+      local render_stderr_file
+      render_stderr_file=$(mktemp)
+      local render_exit=0
+      deploy-config-schema render "$fragment" "$deploy_dir" \
+        --env "$env" \
+        --context "$context_ref" \
+        --context-path "$context_file" \
+        --images "$image_lock_path" \
+        --output "out/manifests/preview/${env}" \
+        2>"$render_stderr_file" || render_exit=$?
+
+      if [[ "$render_exit" -ne 0 ]]; then
+        local diag
+        diag=$(cat "$render_stderr_file")
+        warn "render ${fragment} env=${env} failed (exit=${render_exit}): ${diag}"
+        render_failures["${env}/${fragment}"]="${diag}"
+      fi
+      rm -f "$render_stderr_file"
+    done
   done
 
-  # (2) Emit artifact contract (preview mode; provenance_verified=false)
+  # (2) Emit artifact contract (preview mode; provenance_verified=false).
+  # The CLI requires --deployment, --context (cluster-context.yml path),
+  # --context-ref (digest ref), --environments (comma-separated), --images,
+  # --artifact-name, and --out.
+  local emit_stderr_file
+  emit_stderr_file=$(mktemp)
+  local emit_exit=0
   deploy-config-schema artifact emit-contract \
     --artifact-name preview \
-    --schema-version "$schema_version" \
-    --context-ref "$context_ref" \
     --environments "$environments" \
     --images "$image_lock_path" \
+    --context-ref "$context_ref" \
+    --deployment "${deploy_dir}/deployment.yml" \
+    --context "$context_file" \
     --provenance-verified false \
     --out out/artifact-contract.yaml \
-    2>&1 || true
+    2>"$emit_stderr_file" || emit_exit=$?
 
-  # (3) Compute SC-11 scorecard
+  local emit_diag=""
+  if [[ "$emit_exit" -ne 0 ]]; then
+    emit_diag=$(cat "$emit_stderr_file")
+    warn "artifact emit-contract failed (exit=${emit_exit}): ${emit_diag}"
+  fi
+  rm -f "$emit_stderr_file"
+
+  # (3) Compute SC-11 scorecard.
+  # If emit-contract failed the contract file may not exist; scorecard handles missing files.
   local scorecard
   scorecard=$(compute_scorecard "${deploy_dir}/deployment.yml" out/artifact-contract.yaml)
+
+  # If rendering was impossible (emit-contract failed), mark scorecard fields fail.
+  if [[ "$emit_exit" -ne 0 ]]; then
+    scorecard=$(printf '%s' "$scorecard" \
+      | jq \
+        --arg diag "${emit_diag}" \
+        '.context_pinned = "fail" | .no_latest_images = "fail"')
+  fi
+
+  # If any render failed, mark no_raw_secrets fail with diagnostic
+  if [[ "${#render_failures[@]}" -gt 0 ]]; then
+    scorecard=$(printf '%s' "$scorecard" \
+      | jq '.no_raw_secrets = "fail"')
+    for key in "${!render_failures[@]}"; do
+      warn "render failure [${key}]: ${render_failures[$key]}"
+    done
+  fi
 
   # (4) Build deploy-preview summary markdown
   render_preview_summary "$scorecard" > deploy-preview-summary.md
@@ -410,9 +531,19 @@ main() {
     2>/dev/null || echo "fail")
   emit_gate_summary "deploy-validate" "Deploy Validate" "$overall" "scorecard-evaluated" "none"
 
+  # Exit nonzero when rendering is impossible (emit-contract failed) — the PR
+  # check should fail, not silently pass with a broken scorecard.
+  if [[ "$emit_exit" -ne 0 ]]; then
+    fail "E_EMIT_CONTRACT_FAILED: artifact emit-contract returned ${emit_exit}; rendering impossible"
+  fi
+
   if [[ "$overall" != "pass" ]]; then
     exit 1
   fi
 }
 
-main "$@"
+# Allow sourcing for unit tests of the helpers (find_cluster_context, ...);
+# execute main only when invoked directly.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi

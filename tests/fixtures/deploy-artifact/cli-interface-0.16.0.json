@@ -1,0 +1,51 @@
+{
+  "version": "0.16.0",
+  "description": "Recorded CLI argument shapes for deploy-config-schema 0.16.0. These are derived directly from src/deployment/commands.ts and src/cli.ts in the deploy-config-schema repository at tag v0.16.0. Any change to the flags used in actions/deploy-artifact/run.sh or actions/deploy-preview/run.sh must be reflected here first.",
+  "subcommands": {
+    "render_fragment": {
+      "synopsis": "render <fragment-id> <deploy-dir> --env <env> --images <images.lock.json> (--context-dir <dir> | --context <ref@sha256:..> --context-path <file>) [--output <path>]",
+      "positionals": ["fragment-id", "deploy-dir"],
+      "required_flags": ["--env", "--images"],
+      "exclusive_groups": [
+        ["--context-dir"],
+        ["--context", "--context-path"]
+      ],
+      "optional_flags": ["--output"],
+      "notes": [
+        "The second positional is the deploy directory (e.g. 'deploy'), NOT the deployment.yml file.",
+        "The CLI routes to runFragmentRender when the first positional resolves to a fragment adapter.",
+        "context must be passed either as --context-dir (local dir containing cluster-context-public.yml) or as --context <digest-ref> plus --context-path <local-file>."
+      ]
+    },
+    "artifact_emit_contract": {
+      "synopsis": "artifact emit-contract --artifact-name <name> --environments <e1,e2> --images <images.lock.json> --context-ref <ref@sha256:..> --deployment <deployment.yml> --context <cluster-context.yml> --out <path> [--provenance-verified true|false] [--output-root <dir>]",
+      "required_flags": [
+        "--artifact-name",
+        "--environments",
+        "--images",
+        "--context-ref",
+        "--deployment",
+        "--context",
+        "--out"
+      ],
+      "optional_flags": ["--provenance-verified", "--output-root"],
+      "absent_flags": ["--schema-version"],
+      "notes": [
+        "--schema-version does NOT exist in this subcommand; do not pass it.",
+        "--deployment is required (path to deployment.yml).",
+        "--context is required (path to the pulled cluster-context-public.yml file).",
+        "--context-ref is required (the OCI digest ref string, e.g. ghcr.io/...@sha256:...).",
+        "--environments takes a comma-separated string (e.g. 'production,staging').",
+        "The subcommand is 'artifact emit-contract' (two words after deploy-config-schema)."
+      ]
+    },
+    "artifact_emit_kustomization_health": {
+      "synopsis": "artifact emit-kustomization-health --deployment <deployment.yml> --env <env> --image-digests <images.lock.json> --out <path>",
+      "required_flags": ["--deployment", "--env", "--image-digests", "--out"],
+      "optional_flags": [],
+      "notes": [
+        "Takes a single --env per invocation; call once per environment."
+      ]
+    }
+  }
+}

@@ -17,6 +17,28 @@ warn() {
   printf '::warning::%s\n' "$*" >&2
 }
 
+# find_cluster_context <root>: locate cluster-context-public.yml inside a
+# pulled context package tree. The published artifact carries it under
+# context/public/, but the layout is discovered rather than hardcoded so a
+# layout change fails loud in one place. Prefers a context/public/ match,
+# falls back to the first match anywhere in the tree. Prints the path;
+# returns 1 if no match exists.
+find_cluster_context() {
+  local root="$1"
+  local matches
+  matches=$(find "$root" -type f -name 'cluster-context-public.yml' 2>/dev/null | sort || true)
+  if [[ -z "$matches" ]]; then
+    return 1
+  fi
+  local preferred
+  preferred=$(printf '%s\n' "$matches" | grep '/context/public/' | head -1 || true)
+  if [[ -n "$preferred" ]]; then
+    printf '%s' "$preferred"
+  else
+    printf '%s' "$(printf '%s\n' "$matches" | head -1)"
+  fi
+}
+
 emit_gate_summary() {
   local gate="$1"
   local check_name="$2"
@@ -133,7 +155,7 @@ main() {
     fail "E_IMAGE_LOCK_MISSING: expected at ${image_lock_path} (was image-lock-artifact set?)"
   fi
 
-  # (5) Pull context package via oras
+  # (5) Pull context package via oras (once; reused across all envs and subcommands)
   mkdir -p context-pkg
   if ! oras pull "$context_ref" --output context-pkg/ 2>&1; then
     emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
@@ -141,8 +163,15 @@ main() {
     fail "E_CONTEXT_PULL_FAILED: oras pull ${context_ref} failed"
   fi
 
-  # (6) Validate pulled context
-  deploy-config-schema validate context-pkg/cluster-context-public.yml
+  # (6) Locate cluster-context-public.yml in the pulled tree (usually under
+  # context/public/) and validate it; fail loud if it is absent.
+  local context_file
+  if ! context_file=$(find_cluster_context context-pkg); then
+    emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
+      "context-file-missing" "none"
+    fail "E_CONTEXT_FILE_MISSING: cluster-context-public.yml not found in pulled context package ${context_ref}; pulled files: $(find context-pkg -type f 2>/dev/null | tr '\n' ' ')"
+  fi
+  deploy-config-schema validate "$context_file"
 
   # (7) Process environments: CRLF strip, trim, validate name, dedupe
   local envs_raw
@@ -171,7 +200,11 @@ main() {
     fail "E_NO_VALID_ENVIRONMENTS"
   fi
 
-  # (8) Render 5 fragments per env + emit kustomization health
+  # (8) Render 5 fragments per env + emit kustomization health.
+  # CLI: render <fragment-id> <deploy-dir> --env <env> --images <lock>
+  #      --context <ref@sha256:..> --context-path <file> [--output <path>]
+  # The context package was pulled once in step (5) and the context file
+  # discovered in step (6); pass via --context <digest-ref> --context-path.
   for env in "${envs[@]}"; do
     mkdir -p "out/manifests/${env}" "out/metadata/${env}"
     for fragment in \
@@ -181,10 +214,10 @@ main() {
       edge-catalog-fragment \
       image-metadata-fragment
     do
-      deploy-config-schema render "$fragment" "$deploy_dir/deployment.yml" \
+      deploy-config-schema render "$fragment" "$deploy_dir" \
         --env "$env" \
-        --context context-pkg/cluster-context-public.yml \
-        --context-ref "$context_ref" \
+        --context "$context_ref" \
+        --context-path "$context_file" \
         --images "$image_lock_path" \
         --output "out/manifests/${env}"
     done
@@ -238,16 +271,28 @@ main() {
     }
   fi
 
-  # (13) Emit artifact contract (includes SC-9 render hash)
+  # (13) Emit artifact contract (includes SC-9 render hash).
+  # CLI: artifact emit-contract
+  #   --artifact-name <name>
+  #   --environments <e1,e2>
+  #   --images <images.lock.json>
+  #   --context-ref <ref@sha256:..>
+  #   --deployment <deployment.yml>
+  #   --context <cluster-context.yml>
+  #   --out <path>
+  #   [--provenance-verified true|false]
+  #   [--output-root <dir>]
   local envs_joined
   envs_joined="$(printf '%s,' "${envs[@]}" | sed 's/,$//')"
   deploy-config-schema artifact emit-contract \
     --artifact-name "$artifact_name" \
-    --schema-version "$schema_version" \
-    --context-ref "$context_ref" \
     --environments "$envs_joined" \
     --images "$image_lock_path" \
+    --context-ref "$context_ref" \
+    --deployment "$deploy_dir/deployment.yml" \
+    --context "$context_file" \
     --provenance-verified "$provenance_verified" \
+    --output-root out \
     --out out/artifact-contract.yaml
 
   # (14) Export render-hash to GITHUB_OUTPUT (correction #8: also declared in outputs block)
@@ -259,4 +304,8 @@ main() {
   printf 'render-hash=%s\n' "$render_hash" >> "${GITHUB_OUTPUT:-/dev/null}"
 }
 
-main "$@"
+# Allow sourcing for unit tests of the helpers (find_cluster_context, ...);
+# execute main only when invoked directly.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi
