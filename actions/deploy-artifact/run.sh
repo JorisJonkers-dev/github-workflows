@@ -133,7 +133,7 @@ main() {
     fail "E_IMAGE_LOCK_MISSING: expected at ${image_lock_path} (was image-lock-artifact set?)"
   fi
 
-  # (5) Pull context package via oras
+  # (5) Pull context package via oras (once; reused across all envs and subcommands)
   mkdir -p context-pkg
   if ! oras pull "$context_ref" --output context-pkg/ 2>&1; then
     emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
@@ -171,7 +171,11 @@ main() {
     fail "E_NO_VALID_ENVIRONMENTS"
   fi
 
-  # (8) Render 5 fragments per env + emit kustomization health
+  # (8) Render 5 fragments per env + emit kustomization health.
+  # CLI: render <fragment-id> <deploy-dir> --env <env> --images <lock>
+  #      --context <ref@sha256:..> --context-path <file> [--output <path>]
+  # The context package was pulled once in step (5); pass via
+  # --context <digest-ref> --context-path context-pkg/cluster-context-public.yml.
   for env in "${envs[@]}"; do
     mkdir -p "out/manifests/${env}" "out/metadata/${env}"
     for fragment in \
@@ -181,10 +185,10 @@ main() {
       edge-catalog-fragment \
       image-metadata-fragment
     do
-      deploy-config-schema render "$fragment" "$deploy_dir/deployment.yml" \
+      deploy-config-schema render "$fragment" "$deploy_dir" \
         --env "$env" \
-        --context context-pkg/cluster-context-public.yml \
-        --context-ref "$context_ref" \
+        --context "$context_ref" \
+        --context-path context-pkg/cluster-context-public.yml \
         --images "$image_lock_path" \
         --output "out/manifests/${env}"
     done
@@ -238,16 +242,28 @@ main() {
     }
   fi
 
-  # (13) Emit artifact contract (includes SC-9 render hash)
+  # (13) Emit artifact contract (includes SC-9 render hash).
+  # CLI: artifact emit-contract
+  #   --artifact-name <name>
+  #   --environments <e1,e2>
+  #   --images <images.lock.json>
+  #   --context-ref <ref@sha256:..>
+  #   --deployment <deployment.yml>
+  #   --context <cluster-context.yml>
+  #   --out <path>
+  #   [--provenance-verified true|false]
+  #   [--output-root <dir>]
   local envs_joined
   envs_joined="$(printf '%s,' "${envs[@]}" | sed 's/,$//')"
   deploy-config-schema artifact emit-contract \
     --artifact-name "$artifact_name" \
-    --schema-version "$schema_version" \
-    --context-ref "$context_ref" \
     --environments "$envs_joined" \
     --images "$image_lock_path" \
+    --context-ref "$context_ref" \
+    --deployment "$deploy_dir/deployment.yml" \
+    --context context-pkg/cluster-context-public.yml \
     --provenance-verified "$provenance_verified" \
+    --output-root out \
     --out out/artifact-contract.yaml
 
   # (14) Export render-hash to GITHUB_OUTPUT (correction #8: also declared in outputs block)
