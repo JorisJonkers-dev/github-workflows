@@ -125,6 +125,8 @@ jobs:
           ARTIFACT_NAME: ${{ inputs.artifact-name }}
           ARTIFACT_VERSION: ${{ inputs.artifact-version }}
           RENDER_HASH: ${{ steps.render.outputs.render-hash }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_ACTOR: ${{ github.actor }}
         run: bash .github-workflows/actions/deploy-artifact/publish.sh
 
       - name: Attest build provenance
