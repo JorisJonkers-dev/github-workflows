@@ -48,6 +48,18 @@ main() {
   local artifact_ref
   artifact_ref="ghcr.io/jorisjonkers-dev/${artifact_name}:${artifact_version}"
 
+  # (0) Authenticate to GHCR so oras push and cosign sign can write packages.
+  # GITHUB_TOKEN is always injected by GitHub Actions (packages: write on the
+  # deploy-artifact.yml caller grants write access to the service's packages).
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    printf '%s' "$GITHUB_TOKEN" | oras login ghcr.io \
+      --username "${GITHUB_ACTOR:-github-actions}" \
+      --password-stdin
+    printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io \
+      --username "${GITHUB_ACTOR:-github-actions}" \
+      --password-stdin
+  fi
+
   # (1) Build deterministic tar (SC-9: sort, mtime=0, uid=0, gid=0, numeric)
   tar \
     --sort=name \
@@ -60,14 +72,18 @@ main() {
 
   local artifact_digest
 
-  # (2) Check if tag already exists (idempotent publish)
-  if oras manifest fetch "$artifact_ref" > /dev/null 2>&1; then
-    # Tag exists: verify render-hash matches; fail on mismatch (content collision)
+  # (2) Check if a deploy artifact tag already exists (idempotent publish).
+  # Use --media-type to distinguish deploy artifacts from container images that
+  # share the same tag (container images have a different manifest media type
+  # and will not match, preventing false-positive idempotency hits).
+  if oras manifest fetch "$artifact_ref" \
+       --media-type "application/vnd.jorisjonkers.deployment.artifact.v1+tar" \
+       > /dev/null 2>&1; then
+    # Deploy artifact tag exists: verify render-hash; fail on mismatch.
     local existing_digest
     existing_digest=$(oras resolve "$artifact_ref" 2>/dev/null)
 
     local existing_hash=""
-    # Attempt to extract artifact-contract from the stored artifact blob
     local existing_contract
     if existing_contract=$(oras blob fetch \
         "ghcr.io/jorisjonkers-dev/${artifact_name}@${existing_digest}" \
@@ -82,7 +98,6 @@ main() {
       fail "E_PUBLISH_RACE_TAG_MOVED: tag=${artifact_ref} existing-hash=${existing_hash} new-hash=${render_hash} (different content published under same version tag)"
     fi
 
-    # Hashes match (or could not extract existing hash): idempotent re-use of existing artifact
     artifact_digest="$existing_digest"
     warn "artifact already exists with matching render-hash; skipping push (idempotent)"
   else
@@ -107,19 +122,16 @@ main() {
     artifact_digest="$pushed_digest"
   fi
 
-  # (5) SBOM via syft → attach
-  syft "ghcr.io/jorisjonkers-dev/${artifact_name}@${artifact_digest}" \
-    -o spdx-json=sbom.spdx.json
+  # NOTE: SBOM via syft is intentionally omitted here. This artifact is a
+  # YAML/tar package (deployment configuration), not a container image; there
+  # are no software dependencies to enumerate. Container-image SBOM is handled
+  # separately by the container-publish.yml workflow.
 
-  oras attach "${artifact_ref}@${artifact_digest}" \
-    --artifact-type "application/vnd.syft.sbom.spdx+json" \
-    sbom.spdx.json
-
-  # (6) Keyless cosign sign (SC-10)
+  # (5) Keyless cosign sign (SC-10)
   cosign sign --yes \
     "ghcr.io/jorisjonkers-dev/${artifact_name}@${artifact_digest}"
 
-  # (7) SLSA build provenance attestation
+  # (6) SLSA build provenance attestation
   # Uses the GitHub Actions attest action injected via the workflow permissions
   printf '%s\n' "artifact-ref=${artifact_ref}@${artifact_digest}" >> "${GITHUB_OUTPUT:-/dev/null}"
   printf '%s\n' "artifact-digest=${artifact_digest}" >> "${GITHUB_OUTPUT:-/dev/null}"
