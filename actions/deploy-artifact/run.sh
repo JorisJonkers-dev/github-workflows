@@ -135,17 +135,26 @@ main() {
   fi
 
   # (3) npm audit signatures — provenance verification
+  # NOTE: npm audit signatures only works for packages from npmjs.com.
+  # Packages installed from GHPR (npm.pkg.github.com) will produce
+  # "found no dependencies to audit that were installed from a supported registry"
+  # which is expected and not a failure.
   local provenance_verified=true
   local npm_audit_result
   npm_audit_result=$(npm audit signatures \
     --userconfig "$npmrc" \
     --scope @jorisjonkers-dev 2>&1) || {
-    provenance_verified=false
-    emit_gate_summary "npm-signatures" "npm Signatures" "fail" \
-      "npm-audit-signatures-failed" "none"
-    # Upload npm-signatures gate-summary before exit so finalize can reference it
-    # (folded into deploy-artifact artifact — the finalize job uploads it)
-    fail "E_NPM_AUDIT_SIGNATURES_FAILED: npm audit signatures returned non-zero: ${npm_audit_result}"
+    if echo "$npm_audit_result" | grep -q "found no dependencies to audit that were installed from a supported registry"; then
+      warn "npm audit signatures skipped: package is from a private registry not supported by npm audit signatures"
+      provenance_verified=false
+    else
+      provenance_verified=false
+      emit_gate_summary "npm-signatures" "npm Signatures" "fail" \
+        "npm-audit-signatures-failed" "none"
+      # Upload npm-signatures gate-summary before exit so finalize can reference it
+      # (folded into deploy-artifact artifact — the finalize job uploads it)
+      fail "E_NPM_AUDIT_SIGNATURES_FAILED: npm audit signatures returned non-zero: ${npm_audit_result}"
+    fi
   }
 
   # (4) Guard: image lock must exist
