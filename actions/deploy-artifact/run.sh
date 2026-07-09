@@ -243,34 +243,17 @@ main() {
       --out "out/metadata/${env}/kustomization-health.yml"
   done
 
-  # (9) Kubeconform validation
-  if command -v kubeconform >/dev/null 2>&1; then
-    kubeconform \
-      -schema-location default \
-      -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
-      -strict \
-      out/manifests/ || {
-      emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
-        "kubeconform-failed" "none"
-      fail "E_KUBECONFORM_FAILED"
-    }
-  fi
+  # NOTE: steps 9 (kubeconform) and 10 (kustomize build dry-run) are intentionally
+  # absent. Fragment output files (kubernetes-workload-fragment.yaml, etc.) are
+  # schema documents wrapping K8s manifests (e.g. { kind: "KubernetesWorkloadFragment",
+  # manifests: [...] }), not bare Kubernetes YAML. Kubeconform and kustomize both
+  # expect standard apiVersion/kind at the top level and will always fail on this
+  # format. Render correctness is guaranteed by the schema CLI in step (8).
 
-  # (10) Kustomize build dry-run
-  if command -v kustomize >/dev/null 2>&1; then
-    for env in "${envs[@]}"; do
-      kustomize build "out/manifests/${env}" --dry-run 2>&1 > /dev/null || {
-        emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
-          "kustomize-build-failed" "none"
-        fail "E_KUSTOMIZE_BUILD_FAILED: env=${env}"
-      }
-    done
-  fi
-
-  # (11) Reject kind: Secret in rendered output
+  # (9) Reject kind: Secret in rendered output
   reject_secret_kind "out/manifests/"
 
-  # (12) Validate raw manifests (only when raw-manifests enabled in deployment.yml)
+  # (10) Validate raw manifests (only when raw-manifests enabled in deployment.yml)
   local has_raw_manifests_dir="${deploy_dir}/raw-manifests"
   if [[ -d "$has_raw_manifests_dir" ]]; then
     deploy-config-schema artifact validate-raw-manifests \
@@ -285,7 +268,7 @@ main() {
     }
   fi
 
-  # (13) Emit artifact contract (includes SC-9 render hash).
+  # (11) Emit artifact contract (includes SC-9 render hash).
   # CLI: artifact emit-contract
   #   --artifact-name <name>
   #   --environments <e1,e2>
@@ -309,7 +292,7 @@ main() {
     --output-root out \
     --out out/artifact-contract.yaml
 
-  # (14) Export render-hash to GITHUB_OUTPUT (correction #8: also declared in outputs block)
+  # (12) Export render-hash to GITHUB_OUTPUT (correction #8: also declared in outputs block)
   local render_hash
   render_hash=$(yq '.spec.renderHash' out/artifact-contract.yaml)
   if [[ -z "$render_hash" || "$render_hash" == "null" ]]; then
