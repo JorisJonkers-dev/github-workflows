@@ -7,6 +7,13 @@
 * enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
 * fail Gradle warnings and deprecations while making JVM lint static-only by default
 
+## [0.12.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.11.11...v0.12.0) (2026-07-09)
+
+
+### Features
+
+* **leak-scan:** add exclude-paths input for pr-diff mode ([c8c23b5](https://github.com/JorisJonkers-dev/github-workflows/commit/c8c23b5e0e5a8ef62927d5febee04bf4be9013ef))
+
 ## [0.11.11](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.11.10...v0.11.11) (2026-07-09)
 
 
