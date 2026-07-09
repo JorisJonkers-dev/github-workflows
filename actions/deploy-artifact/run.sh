@@ -174,13 +174,18 @@ main() {
 
   # (6) Locate cluster-context-public.yml in the pulled tree (usually under
   # context/public/) and validate it; fail loud if it is absent.
+  # NOTE: `deploy-config-schema validate` must NOT be called on this file —
+  # it has kind=ClusterContext (no deploy-config schema applies; the CLI falls
+  # back to the deploy-config schema and produces spurious E_SCHEMA errors).
+  # The context is validated by homelab-inventory before being published via
+  # scripts/validate-contexts.mjs which uses the correct validateClusterContext
+  # programmatic API. Presence-check only here.
   local context_file
   if ! context_file=$(find_cluster_context context-pkg); then
     emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
       "context-file-missing" "none"
     fail "E_CONTEXT_FILE_MISSING: cluster-context-public.yml not found in pulled context package ${context_ref}; pulled files: $(find context-pkg -type f 2>/dev/null | tr '\n' ' ')"
   fi
-  deploy-config-schema validate "$context_file"
 
   # (7) Process environments: CRLF strip, trim, validate name, dedupe
   local envs_raw
