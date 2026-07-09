@@ -7,6 +7,13 @@
 * enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
 * fail Gradle warnings and deprecations while making JVM lint static-only by default
 
+## [0.11.8](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.11.7...v0.11.8) (2026-07-09)
+
+
+### Bug Fixes
+
+* add GHCR auth and fix idempotency check in deploy-artifact publish ([#47](https://github.com/JorisJonkers-dev/github-workflows/issues/47)) ([1dcc8d0](https://github.com/JorisJonkers-dev/github-workflows/commit/1dcc8d03be3027ac095d9298c39f3e34e3b3d226))
+
 ## [0.11.7](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.11.6...v0.11.7) (2026-07-09)
 
 
