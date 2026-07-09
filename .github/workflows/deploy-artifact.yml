@@ -133,6 +133,7 @@ jobs:
         if: ${{ steps.publish.outputs.artifact-digest != '' }}
         uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
         with:
+          subject-name: ghcr.io/jorisjonkers-dev/${{ inputs.artifact-name }}:deploy-${{ inputs.artifact-version }}
           subject-digest: ${{ steps.publish.outputs.artifact-digest }}
           push-to-registry: true
 
