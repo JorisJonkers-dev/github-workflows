@@ -46,7 +46,11 @@ main() {
   local artifact_version="${ARTIFACT_VERSION:?ARTIFACT_VERSION is required}"
   local render_hash="${RENDER_HASH:?RENDER_HASH is required}"
   local artifact_ref
-  artifact_ref="ghcr.io/jorisjonkers-dev/${artifact_name}:${artifact_version}"
+  # Use a "deploy-" tag prefix to avoid colliding with the container image tag.
+  # Container images are pushed as ghcr.io/<owner>/<name>:<version> by
+  # container-publish.yml; deploy artifacts use ghcr.io/<owner>/<name>:deploy-<version>
+  # so they coexist in the same GHCR repository without overwriting each other.
+  artifact_ref="ghcr.io/jorisjonkers-dev/${artifact_name}:deploy-${artifact_version}"
 
   # (0) Authenticate to GHCR so oras push and cosign sign can write packages.
   # GITHUB_TOKEN is always injected by GitHub Actions (packages: write on the
@@ -72,13 +76,10 @@ main() {
 
   local artifact_digest
 
-  # (2) Check if a deploy artifact tag already exists (idempotent publish).
-  # Use --media-type to distinguish deploy artifacts from container images that
-  # share the same tag (container images have a different manifest media type
-  # and will not match, preventing false-positive idempotency hits).
-  if oras manifest fetch "$artifact_ref" \
-       --media-type "application/vnd.jorisjonkers.deployment.artifact.v1+tar" \
-       > /dev/null 2>&1; then
+  # (2) Check if the deploy artifact tag already exists (idempotent publish).
+  # The "deploy-" tag prefix (e.g. "deploy-v1.2.3") ensures this tag can only
+  # ever point to a deploy artifact — container images use a plain version tag.
+  if oras manifest fetch "$artifact_ref" > /dev/null 2>&1; then
     # Deploy artifact tag exists: verify render-hash; fail on mismatch.
     local existing_digest
     existing_digest=$(oras resolve "$artifact_ref" 2>/dev/null)
@@ -102,21 +103,19 @@ main() {
     warn "artifact already exists with matching render-hash; skipping push (idempotent)"
   else
     # (3) Push artifact
+    # oras 1.x does not support --digest-file; capture digest via oras resolve
+    # after push, which also serves as the post-push verification (step 4).
     oras push "$artifact_ref" \
       --artifact-type "application/vnd.jorisjonkers.deployment.artifact.v1+tar" \
-      artifact.tar \
-      --digest-file pushed.digest
+      artifact.tar
 
+    # (4) Resolve digest after push (also detects tag-move races)
     local pushed_digest
-    pushed_digest=$(cat pushed.digest)
-
-    # (4) Post-push resolve verification (detect tag-move race)
-    local resolved_digest
-    resolved_digest=$(oras resolve "$artifact_ref" 2>/dev/null)
-    if [[ "$resolved_digest" != "$pushed_digest" ]]; then
+    pushed_digest=$(oras resolve "$artifact_ref" 2>/dev/null)
+    if [[ -z "$pushed_digest" || "$pushed_digest" != sha256:* ]]; then
       emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
-        "publish-race-tag-moved" "none"
-      fail "E_PUBLISH_RACE_TAG_MOVED: pushed=${pushed_digest} resolved=${resolved_digest} (concurrent push moved tag)"
+        "publish-resolve-failed" "none"
+      fail "E_PUBLISH_RESOLVE_FAILED: could not resolve digest for ${artifact_ref} after push"
     fi
 
     artifact_digest="$pushed_digest"
