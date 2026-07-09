@@ -7,6 +7,13 @@
 * enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
 * fail Gradle warnings and deprecations while making JVM lint static-only by default
 
+## [0.11.9](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.11.8...v0.11.9) (2026-07-09)
+
+
+### Bug Fixes
+
+* use deploy- tag prefix and fix oras resolve for artifact digest ([#49](https://github.com/JorisJonkers-dev/github-workflows/issues/49)) ([ca4ace3](https://github.com/JorisJonkers-dev/github-workflows/commit/ca4ace3e455f019b32b4edcd9dc0ddcc759d94c5))
+
 ## [0.11.8](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.11.7...v0.11.8) (2026-07-09)
 
 
