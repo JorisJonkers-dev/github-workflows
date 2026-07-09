@@ -27,6 +27,14 @@ on:
         required: false
         type: string
         default: default
+      exclude-paths:
+        description: >
+          Space-separated path prefixes to exclude from the pr-diff deny-list scan.
+          Files whose paths start with any of these prefixes are skipped.
+          Only effective in pr-diff mode.
+        required: false
+        type: string
+        default: ""
     outputs:
       gate-summary-artifact:
         description: Artifact name containing the SC-4 gate-summary.json.
@@ -64,6 +72,7 @@ jobs:
           base-ref: ${{ inputs.base-ref }}
           head-ref: ${{ inputs.head-ref }}
           deny-list: ${{ inputs.deny-list }}
+          exclude-paths: ${{ inputs.exclude-paths }}
 
       # Always upload gate-summary-leak-scan (SC-4 fail-safe)
       - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1

@@ -176,6 +176,28 @@ run_pr_diff_scan() {
     return 0
   fi
 
+  # Apply EXCLUDE_PATHS: filter out files whose paths start with any excluded prefix.
+  # EXCLUDE_PATHS is a space-separated list of path prefixes (e.g. ".internal-context/").
+  local filtered_files="$changed_files"
+  if [[ -n "${EXCLUDE_PATHS:-}" ]]; then
+    for excl_prefix in $EXCLUDE_PATHS; do
+      filtered_files=$(printf '%s\n' "$filtered_files" \
+        | grep -v "^${excl_prefix}" || true)
+    done
+    local excluded_count
+    excluded_count=$(( $(printf '%s\n' "$changed_files" | grep -c .) - $(printf '%s\n' "$filtered_files" | grep -c . || echo 0) ))
+    if [[ $excluded_count -gt 0 ]]; then
+      printf '::notice::leak-scan: excluded %d path(s) matching EXCLUDE_PATHS prefixes\n' \
+        "$excluded_count"
+    fi
+    changed_files="$filtered_files"
+  fi
+
+  if [[ -z "$changed_files" ]]; then
+    emit_gate_summary "leak-scan" "Leak Scan" "pass" "no-changed-files-after-exclusion" "none" --redacted
+    return 0
+  fi
+
   printf '%s\n' "$changed_files" > changed-files.txt
 
   local gitleaks_exit=0

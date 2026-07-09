@@ -24,6 +24,13 @@ inputs:
     description: SC-8 mode key (default | deployment-artifact | deployment-composition).
     required: false
     default: default
+  exclude-paths:
+    description: >
+      Space-separated path prefixes to exclude from the pr-diff deny-list scan.
+      Files whose paths start with any of these prefixes are skipped.
+      Only effective in pr-diff mode.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -36,5 +43,6 @@ runs:
         BASE_REF: ${{ inputs.base-ref }}
         HEAD_REF: ${{ inputs.head-ref }}
         DENY_LIST: ${{ inputs.deny-list }}
+        EXCLUDE_PATHS: ${{ inputs.exclude-paths }}
         GW_ROOT: ${{ github.action_path }}/../..
       run: bash "${{ github.action_path }}/run.sh"
