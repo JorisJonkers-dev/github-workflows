@@ -233,7 +233,7 @@ main() {
         --context "$context_ref" \
         --context-path "$context_file" \
         --images "$image_lock_path" \
-        --output "out/manifests/${env}"
+        --output "out/manifests/${env}/${fragment}.yaml"
     done
 
     deploy-config-schema artifact emit-kustomization-health \
