@@ -127,7 +127,7 @@ main() {
 
   # Verify installed version matches exactly
   local installed
-  installed=$(deploy-config-schema --version 2>/dev/null || echo "")
+  installed=$(node -e "const d=require('fs').readFileSync(process.argv[1],'utf8');console.log(JSON.parse(d).version)" "${install_root}/node_modules/@jorisjonkers-dev/deploy-config-schema/package.json" 2>/dev/null || echo "")
   if [[ "$installed" != "$schema_version" ]]; then
     emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
       "schema-version-mismatch" "none"
