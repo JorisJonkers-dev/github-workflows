@@ -95,7 +95,7 @@ jobs:
       # The lock is always consumed from deploy-dir/images.lock.json after download.
       - name: Download image lock artifact
         if: ${{ inputs.image-lock-artifact != '' }}
-        uses: actions/download-artifact@cc203385981b70ca67064bef7b51b0f4e50f8bff # v4.2.1
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:
           name: ${{ inputs.image-lock-artifact }}
           path: ${{ inputs.deploy-dir }}
@@ -129,7 +129,7 @@ jobs:
 
       - name: Attest build provenance
         if: ${{ steps.publish.outputs.artifact-digest != '' }}
-        uses: actions/attest-build-provenance@c4fbc648f330a2f05dd227e5b41538a91ae0e11a # v2.2.3
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
         with:
           subject-digest: ${{ steps.publish.outputs.artifact-digest }}
           push-to-registry: true
