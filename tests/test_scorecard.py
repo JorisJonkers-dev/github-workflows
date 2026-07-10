@@ -591,5 +591,129 @@ class DetailSuffixedFailTest(unittest.TestCase):
         )
 
 
+# ---------------------------------------------------------------------------
+# T-SC8: executable render-failure path — main() must exit via E_RENDER_FAILED
+# ---------------------------------------------------------------------------
+
+
+class RenderFailureEndToEndTest(unittest.TestCase):
+    """
+    Run main() with stubbed CLI tooling (oras, npm, deploy-config-schema) so
+    every fragment render fails while emit-contract succeeds. The action must
+    exit nonzero via E_RENDER_FAILED naming the failed env/fragment pairs, and
+    the gate summary must carry a render-failed:<list> reason — proving the
+    failure path is reachable and ordered after the sticky-comment/summary
+    steps, not just present in the source text.
+    """
+
+    STUB_ORAS = """#!/usr/bin/env bash
+# Stub oras: create the expected pulled-context layout under --output <dir>.
+out=""
+prev=""
+for a in "$@"; do
+  if [[ "$prev" == "--output" ]]; then out="$a"; fi
+  prev="$a"
+done
+mkdir -p "${out}/context/public"
+printf 'cluster: stub\n' > "${out}/context/public/cluster-context-public.yml"
+exit 0
+"""
+
+    STUB_NPM = """#!/usr/bin/env bash
+exit 0
+"""
+
+    STUB_SCHEMA_CLI = """#!/usr/bin/env bash
+# Stub deploy-config-schema: every fragment render fails; emit-contract
+# succeeds and writes a minimal contract to --out.
+if [[ "$1" == "render" ]]; then
+  printf '{"error":"stub render failure"}\n' >&2
+  exit 1
+fi
+if [[ "$1" == "artifact" ]]; then
+  out=""
+  prev=""
+  for a in "$@"; do
+    if [[ "$prev" == "--out" ]]; then out="$a"; fi
+    prev="$a"
+  done
+  printf 'spec:\n  contextRef: ghcr.io/stub/context@sha256:abc\n' > "$out"
+  exit 0
+fi
+exit 0
+"""
+
+    def test_render_failure_exits_via_e_render_failed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            stub_bin = tmppath / "stub-bin"
+            stub_bin.mkdir()
+            for name, content in (
+                ("oras", self.STUB_ORAS),
+                ("npm", self.STUB_NPM),
+                ("deploy-config-schema", self.STUB_SCHEMA_CLI),
+            ):
+                stub = stub_bin / name
+                stub.write_text(content, encoding="utf-8")
+                stub.chmod(0o755)
+
+            workdir = tmppath / "work"
+            (workdir / "deploy").mkdir(parents=True)
+            (workdir / "deploy" / "deployment.yml").write_text(
+                MINIMAL_DEPLOYMENT_YML, encoding="utf-8"
+            )
+
+            env = {
+                "PATH": f"{stub_bin}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+                "HOME": os.environ.get("HOME", "/root"),
+                "RUNNER_TEMP": str(tmppath / "runner-temp"),
+                "DEPLOY_DIR": "deploy",
+                "SCHEMA_VERSION": "0.0.0",
+                "IMAGE_LOCK_PATH": "deploy/images.lock.json",
+                "CONTEXT_REF": "ghcr.io/stub/context@sha256:abc",
+                "ENVIRONMENTS": "production",
+                "COMMENT": "false",
+            }
+            result = subprocess.run(
+                ["bash", str(DEPLOY_PREVIEW_RUN)],
+                env=env,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=str(workdir),
+            )
+
+            self.assertNotEqual(
+                result.returncode,
+                0,
+                f"main() must exit nonzero when fragment renders fail: {result.stdout}",
+            )
+            self.assertIn(
+                "E_RENDER_FAILED",
+                result.stderr,
+                f"stderr must carry E_RENDER_FAILED: {result.stderr}",
+            )
+            self.assertIn(
+                "production/kubernetes-workload-fragment",
+                result.stderr,
+                f"E_RENDER_FAILED must name the failed env/fragment pairs: {result.stderr}",
+            )
+
+            gate_summary = json.loads(
+                (workdir / "gate-summary.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(gate_summary["status"], "fail")
+            self.assertTrue(
+                gate_summary["reason"].startswith("render-failed:"),
+                f"gate reason must be render-failed:<list>, got: {gate_summary['reason']!r}",
+            )
+            self.assertIn(
+                "production/kubernetes-workload-fragment",
+                gate_summary["reason"],
+                f"gate reason must name the failed fragments: {gate_summary['reason']!r}",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

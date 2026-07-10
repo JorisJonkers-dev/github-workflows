@@ -544,9 +544,14 @@ main() {
   emit_gate_summary "deploy-validate" "Deploy Validate" "$overall" "$gate_reason" "none"
 
   # Exit nonzero when rendering is impossible (emit-contract failed) — the PR
-  # check should fail, not silently pass with a broken scorecard.
+  # check should fail, not silently pass with a broken scorecard. Failed
+  # fragment renders are named alongside so neither cause is hidden.
   if [[ "$emit_exit" -ne 0 ]]; then
-    fail "E_EMIT_CONTRACT_FAILED: artifact emit-contract returned ${emit_exit}; rendering impossible"
+    local emit_extra=""
+    if [[ -n "$failed_fragments" ]]; then
+      emit_extra="; fragment renders also failed: ${failed_fragments}"
+    fi
+    fail "E_EMIT_CONTRACT_FAILED: artifact emit-contract returned ${emit_exit}; rendering impossible${emit_extra}"
   fi
 
   # Exit nonzero when any fragment render failed, naming the concrete
