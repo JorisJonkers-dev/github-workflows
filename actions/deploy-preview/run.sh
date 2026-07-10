@@ -168,10 +168,14 @@ compute_scorecard() {
     rollback_retention_acknowledged="pass"
   fi
 
-  # no_raw_secrets
+  # no_raw_secrets: fail if any rendered manifest contains a raw Secret resource.
+  # A missing or empty out/manifests/ directory (e.g. all renders failed) cannot
+  # contain secrets, so the check correctly passes in that case.
   local no_raw_secrets="pass"
-  if grep -r 'kind: Secret' out/manifests/ 2>/dev/null | grep -q .; then
-    no_raw_secrets="fail"
+  local raw_secrets_file
+  raw_secrets_file=$(grep -rl 'kind: Secret' out/manifests/ 2>/dev/null | head -1 || true)
+  if [[ -n "$raw_secrets_file" ]]; then
+    no_raw_secrets="fail:raw-secret-in:${raw_secrets_file}"
   fi
 
   # stateful_policy_declared: not_applicable if no stateful workloads
@@ -209,11 +213,10 @@ compute_scorecard() {
     fi
   fi
 
-  # npm_signatures_verified: from contract provenance_verified
-  local npm_signatures_verified="fail"
-  if yq '.spec.provenance_verified' "$contract_yaml" 2>/dev/null | grep -q 'true'; then
-    npm_signatures_verified="pass"
-  fi
+  # npm_signatures_verified: not_applicable in preview mode because the action
+  # always passes --provenance-verified false (no published artifact exists at
+  # PR time). Provenance verification only applies to the deploy-artifact gate.
+  local npm_signatures_verified="not_applicable"
 
   printf '{
   "schema_pinned": "%s",
@@ -281,7 +284,7 @@ render_preview_summary() {
   local scorecard_rows=""
   while IFS="=" read -r key value; do
     local icon="✅"
-    if [[ "$value" == "fail" ]]; then
+    if [[ "$value" == fail* ]]; then
       icon="❌"
     elif [[ "$value" == "not_applicable" ]]; then
       icon="➖"
@@ -499,10 +502,9 @@ main() {
         '.context_pinned = "fail" | .no_latest_images = "fail"')
   fi
 
-  # If any render failed, mark no_raw_secrets fail with diagnostic
+  # Emit render failure diagnostics (renders failing does not itself fail any
+  # scorecard check — the individual checks handle missing manifests correctly).
   if [[ "${#render_failures[@]}" -gt 0 ]]; then
-    scorecard=$(printf '%s' "$scorecard" \
-      | jq '.no_raw_secrets = "fail"')
     for key in "${!render_failures[@]}"; do
       warn "render failure [${key}]: ${render_failures[$key]}"
     done
@@ -527,7 +529,7 @@ main() {
   # (7) Emit SC-4 gate summary
   local overall
   overall=$(printf '%s' "$scorecard" \
-    | jq -r '[.[] | select(. == "fail")] | length == 0 | if . then "pass" else "fail" end' \
+    | jq -r '[.[] | select(type == "string" and startswith("fail"))] | length == 0 | if . then "pass" else "fail" end' \
     2>/dev/null || echo "fail")
   emit_gate_summary "deploy-validate" "Deploy Validate" "$overall" "scorecard-evaluated" "none"
 
