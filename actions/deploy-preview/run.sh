@@ -173,7 +173,8 @@ compute_scorecard() {
   # contain secrets, so the check correctly passes in that case.
   local no_raw_secrets="pass"
   local raw_secrets_file
-  raw_secrets_file=$(grep -rl 'kind: Secret' out/manifests/ 2>/dev/null | head -1 || true)
+  raw_secrets_file=$(grep -rlE '^kind:[[:space:]]*Secret[[:space:]]*$' out/manifests/ 2>/dev/null \
+    | head -1 || true)
   if [[ -n "$raw_secrets_file" ]]; then
     no_raw_secrets="fail:raw-secret-in:${raw_secrets_file}"
   fi
@@ -502,8 +503,9 @@ main() {
         '.context_pinned = "fail" | .no_latest_images = "fail"')
   fi
 
-  # Emit render failure diagnostics (renders failing does not itself fail any
-  # scorecard check — the individual checks handle missing manifests correctly).
+  # Emit render failure diagnostics. Render failures never fail a scorecard
+  # check (the checks handle missing manifests correctly); they fail the action
+  # itself at the end via E_RENDER_FAILED, naming the failed fragments.
   if [[ "${#render_failures[@]}" -gt 0 ]]; then
     for key in "${!render_failures[@]}"; do
       warn "render failure [${key}]: ${render_failures[$key]}"
@@ -526,17 +528,31 @@ main() {
     warn "Deploy Preview: escape hatch in use — one or more SC-11 checks are not_applicable"
   fi
 
-  # (7) Emit SC-4 gate summary
+  # (7) Emit SC-4 gate summary. Render failures fail the gate with the failed
+  # fragments named in the reason — never misattributed to a scorecard check.
   local overall
   overall=$(printf '%s' "$scorecard" \
     | jq -r '[.[] | select(type == "string" and startswith("fail"))] | length == 0 | if . then "pass" else "fail" end' \
     2>/dev/null || echo "fail")
-  emit_gate_summary "deploy-validate" "Deploy Validate" "$overall" "scorecard-evaluated" "none"
+  local gate_reason="scorecard-evaluated"
+  local failed_fragments=""
+  if [[ "${#render_failures[@]}" -gt 0 ]]; then
+    failed_fragments=$(printf '%s\n' "${!render_failures[@]}" | sort | paste -sd, -)
+    overall="fail"
+    gate_reason="render-failed:${failed_fragments}"
+  fi
+  emit_gate_summary "deploy-validate" "Deploy Validate" "$overall" "$gate_reason" "none"
 
   # Exit nonzero when rendering is impossible (emit-contract failed) — the PR
   # check should fail, not silently pass with a broken scorecard.
   if [[ "$emit_exit" -ne 0 ]]; then
     fail "E_EMIT_CONTRACT_FAILED: artifact emit-contract returned ${emit_exit}; rendering impossible"
+  fi
+
+  # Exit nonzero when any fragment render failed, naming the concrete
+  # fragments; per-fragment diagnostics were already emitted as warnings.
+  if [[ -n "$failed_fragments" ]]; then
+    fail "E_RENDER_FAILED: fragment renders failed: ${failed_fragments}"
   fi
 
   if [[ "$overall" != "pass" ]]; then

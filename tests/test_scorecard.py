@@ -258,6 +258,27 @@ class NoRawSecretsPassWhenEmptyTest(unittest.TestCase):
             f"Expected pass when manifests contain no Secret, got: {scorecard['no_raw_secrets']}",
         )
 
+    def test_no_raw_secrets_pass_for_secretstore_kinds(self) -> None:
+        # 'kind: SecretStore' / 'kind: ClusterSecretStore' are not raw Secrets
+        # and must not trip the anchored kind match.
+        setup = (
+            "mkdir -p out/manifests/preview/production && "
+            "printf 'apiVersion: external-secrets.io/v1\\nkind: SecretStore\\n' "
+            "> out/manifests/preview/production/store.yaml && "
+            "printf 'apiVersion: external-secrets.io/v1\\nkind: ClusterSecretStore\\n' "
+            "> out/manifests/preview/production/cluster-store.yaml"
+        )
+        result = _run_compute_scorecard(
+            MINIMAL_DEPLOYMENT_YML, MINIMAL_CONTRACT_YAML, extra_setup=setup
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        scorecard = json.loads(result.stdout)
+        self.assertEqual(
+            scorecard["no_raw_secrets"],
+            "pass",
+            f"SecretStore kinds must not count as raw Secrets, got: {scorecard['no_raw_secrets']}",
+        )
+
 
 # ---------------------------------------------------------------------------
 # T-SC4: no_raw_secrets fails with file name when a raw Secret is found
@@ -533,6 +554,28 @@ class DetailSuffixedFailTest(unittest.TestCase):
             result.stdout.strip(),
             "fail",
             "A detail-suffixed fail value (fail:raw-secret-in:...) must fail the gate",
+        )
+
+    def test_render_failures_fail_action_with_named_fragments(self) -> None:
+        """
+        Render failures must fail the action via E_RENDER_FAILED, naming the
+        failed fragments — never by overriding a scorecard check.
+        """
+        run_sh_text = DEPLOY_PREVIEW_RUN.read_text(encoding="utf-8")
+        self.assertIn(
+            "E_RENDER_FAILED",
+            run_sh_text,
+            "run.sh must fail with E_RENDER_FAILED when any fragment render fails",
+        )
+        self.assertIn(
+            "render-failed:",
+            run_sh_text,
+            "gate-summary reason must name the failed fragments (render-failed:<list>)",
+        )
+        self.assertNotIn(
+            "'.no_raw_secrets = \"fail\"'",
+            run_sh_text,
+            "render failures must not be misattributed to no_raw_secrets",
         )
 
     def test_gate_filter_in_tests_matches_run_sh(self) -> None:
