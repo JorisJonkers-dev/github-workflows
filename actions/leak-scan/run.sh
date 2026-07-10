@@ -125,6 +125,10 @@ run_all_refs_scan() {
   local gitleaks_exit=0
   local trufflehog_exit=0
 
+  # Fail-closed: all-refs is a pre-flip prerequisite; gitleaks must be
+  # available.  The action.yml install step runs first; if it succeeded,
+  # gitleaks will be on PATH.  If it is still absent (install failed or the
+  # action was bypassed), the job must fail loudly — not warn-and-degrade.
   if command -v gitleaks >/dev/null 2>&1; then
     gitleaks detect \
       --source=. \
@@ -133,7 +137,10 @@ run_all_refs_scan() {
       --report-path=gitleaks-report.json \
       2>&1 || gitleaks_exit=$?
   else
-    printf '::warning::gitleaks not found; skipping gitleaks all-refs scan\n'
+    emit_gate_summary "leak-scan" "Leak Scan" "fail" \
+      "E_GITLEAKS_MISSING: gitleaks not found after install step; all-refs scan cannot proceed" \
+      "none" --redacted
+    fail "E_GITLEAKS_MISSING: gitleaks not found; all-refs scan requires gitleaks to be installed"
   fi
 
   if command -v trufflehog >/dev/null 2>&1; then
