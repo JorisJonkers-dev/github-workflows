@@ -589,5 +589,197 @@ class DeployPreviewRunShTest(unittest.TestCase):
             self.assertIn(fragment, self.run_sh, msg=f"Fragment '{fragment}' not rendered in deploy-preview/run.sh")
 
 
+
+# ---------------------------------------------------------------------------
+# T-D7: Leak-scan tool installation and fail-closed hardening
+# ---------------------------------------------------------------------------
+
+
+class LeakScanInstallAndFailClosedTest(unittest.TestCase):
+    """
+    T-D7: action.yml install steps and run.sh fail-closed hardening for all-refs mode.
+
+    Sub-tests:
+      T-D7a: action.yml declares install steps for gitleaks and trufflehog before run step.
+      T-D7b: action.yml install steps pin exact version and SHA256 via env vars.
+      T-D7c: action.yml install steps are idempotent (skip when tool is already on PATH).
+      T-D7d: action.yml install steps verify checksum before installing.
+      T-D7e: run.sh fails loudly (E_GITLEAKS_MISSING) in all-refs mode when gitleaks absent.
+      T-D7f: run.sh pr-diff mode keeps graceful warning when gitleaks absent (not fail-closed).
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.action = load_yaml(LEAK_SCAN_ACTION)
+        cls.run_sh_text = LEAK_SCAN_RUN.read_text(encoding="utf-8")
+        cls.gw_root = ROOT
+        cls.script = LEAK_SCAN_RUN
+
+    def _run(self, env_overrides: dict[str, str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+        base = {
+            "GW_ROOT": str(self.gw_root),
+            "PATHS": ".",
+            "BASE_REF": "",
+            "HEAD_REF": "",
+            "DENY_LIST": "default",
+        }
+        base.update(env_overrides)
+        return run_script(self.script, env=base, cwd=cwd)
+
+    def _get_install_steps(self) -> list[dict]:
+        steps = self.action["runs"]["steps"]
+        return [s for s in steps if s.get("name", "").startswith("Install ")]
+
+    # T-D7a: install steps exist before the run step
+    def test_install_steps_present_before_run_step(self) -> None:
+        steps = self.action["runs"]["steps"]
+        step_names = [s.get("name", "") for s in steps]
+        run_idx = next(
+            (i for i, n in enumerate(step_names) if n == "Run leak scan"),
+            None,
+        )
+        self.assertIsNotNone(run_idx, "action.yml must have a 'Run leak scan' step")
+        install_before_run = [
+            n for n in step_names[:run_idx]
+            if n.startswith("Install ")
+        ]
+        self.assertGreaterEqual(
+            len(install_before_run),
+            2,
+            f"action.yml must install at least 2 tools (gitleaks, trufflehog) before 'Run leak scan'; found: {install_before_run}",
+        )
+        self.assertTrue(
+            any("gitleaks" in n.lower() for n in install_before_run),
+            "action.yml must have an install step for gitleaks before 'Run leak scan'",
+        )
+        self.assertTrue(
+            any("trufflehog" in n.lower() for n in install_before_run),
+            "action.yml must have an install step for trufflehog before 'Run leak scan'",
+        )
+
+    # T-D7b: install steps pin version and SHA256
+    def test_gitleaks_install_step_pins_version_and_checksum(self) -> None:
+        steps = self._get_install_steps()
+        gitleaks_step = next((s for s in steps if "gitleaks" in s.get("name", "").lower()), None)
+        self.assertIsNotNone(gitleaks_step, "action.yml must have a gitleaks install step")
+        env = gitleaks_step.get("env", {})
+        self.assertIn("GITLEAKS_VERSION", env, "gitleaks install step must pin GITLEAKS_VERSION")
+        self.assertIn("GITLEAKS_SHA256", env, "gitleaks install step must pin GITLEAKS_SHA256")
+        sha = env["GITLEAKS_SHA256"]
+        self.assertRegex(
+            sha,
+            r"^[0-9a-f]{64}$",
+            f"GITLEAKS_SHA256 must be a 64-char hex string; got: {sha!r}",
+        )
+
+    def test_trufflehog_install_step_pins_version_and_checksum(self) -> None:
+        steps = self._get_install_steps()
+        th_step = next((s for s in steps if "trufflehog" in s.get("name", "").lower()), None)
+        self.assertIsNotNone(th_step, "action.yml must have a trufflehog install step")
+        env = th_step.get("env", {})
+        self.assertIn("TRUFFLEHOG_VERSION", env, "trufflehog install step must pin TRUFFLEHOG_VERSION")
+        self.assertIn("TRUFFLEHOG_SHA256", env, "trufflehog install step must pin TRUFFLEHOG_SHA256")
+        sha = env["TRUFFLEHOG_SHA256"]
+        self.assertRegex(
+            sha,
+            r"^[0-9a-f]{64}$",
+            f"TRUFFLEHOG_SHA256 must be a 64-char hex string; got: {sha!r}",
+        )
+
+    # T-D7c: install steps are idempotent (skip if already on PATH)
+    def test_gitleaks_install_step_is_idempotent(self) -> None:
+        steps = self._get_install_steps()
+        gitleaks_step = next((s for s in steps if "gitleaks" in s.get("name", "").lower()), None)
+        self.assertIsNotNone(gitleaks_step)
+        run_block = gitleaks_step.get("run", "")
+        self.assertIn(
+            "command -v gitleaks",
+            run_block,
+            "gitleaks install step must check if gitleaks is already on PATH before downloading",
+        )
+
+    def test_trufflehog_install_step_is_idempotent(self) -> None:
+        steps = self._get_install_steps()
+        th_step = next((s for s in steps if "trufflehog" in s.get("name", "").lower()), None)
+        self.assertIsNotNone(th_step)
+        run_block = th_step.get("run", "")
+        self.assertIn(
+            "command -v trufflehog",
+            run_block,
+            "trufflehog install step must check if trufflehog is already on PATH before downloading",
+        )
+
+    # T-D7d: install steps verify checksum
+    def test_gitleaks_install_step_verifies_checksum(self) -> None:
+        steps = self._get_install_steps()
+        gitleaks_step = next((s for s in steps if "gitleaks" in s.get("name", "").lower()), None)
+        self.assertIsNotNone(gitleaks_step)
+        run_block = gitleaks_step.get("run", "")
+        self.assertIn(
+            "sha256sum",
+            run_block,
+            "gitleaks install step must verify the SHA256 checksum before installing",
+        )
+
+    def test_trufflehog_install_step_verifies_checksum(self) -> None:
+        steps = self._get_install_steps()
+        th_step = next((s for s in steps if "trufflehog" in s.get("name", "").lower()), None)
+        self.assertIsNotNone(th_step)
+        run_block = th_step.get("run", "")
+        self.assertIn(
+            "sha256sum",
+            run_block,
+            "trufflehog install step must verify the SHA256 checksum before installing",
+        )
+
+    # T-D7e: run.sh all-refs mode fails loudly when gitleaks is absent
+    def test_all_refs_fails_loudly_when_gitleaks_absent(self) -> None:
+        """
+        run.sh must exit non-zero with E_GITLEAKS_MISSING in all-refs mode when
+        gitleaks is not on PATH.  This is the fail-closed contract: a missing
+        tool in all-refs mode must never silently degrade.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            # Use a PATH that contains only /usr/bin and /bin so gitleaks is absent
+            # but standard tools (bash, git, jq, grep, etc.) still work.
+            fake_path = "/usr/bin:/bin"
+            result = self._run(
+                {"MODE": "all-refs", "PATH": fake_path},
+                cwd=tmppath,
+            )
+            self.assertNotEqual(
+                result.returncode,
+                0,
+                "run.sh must exit non-zero in all-refs mode when gitleaks is not on PATH",
+            )
+            combined = result.stdout + result.stderr
+            self.assertIn(
+                "E_GITLEAKS_MISSING",
+                combined,
+                "run.sh must emit E_GITLEAKS_MISSING when gitleaks is absent in all-refs mode",
+            )
+
+    def test_all_refs_fail_closed_is_in_script(self) -> None:
+        """Static drift guard: E_GITLEAKS_MISSING must be present in run.sh."""
+        self.assertIn(
+            "E_GITLEAKS_MISSING",
+            self.run_sh_text,
+            "run.sh must contain E_GITLEAKS_MISSING error for all-refs fail-closed behavior",
+        )
+
+    # T-D7f: run.sh pr-diff mode keeps graceful warning when gitleaks absent
+    def test_pr_diff_keeps_graceful_warning_when_gitleaks_absent(self) -> None:
+        """
+        pr-diff mode documented contract: gitleaks missing emits a warning
+        and falls back to deny-list scan only (graceful degradation).
+        """
+        self.assertIn(
+            "gitleaks not found; skipping gitleaks pr-diff scan",
+            self.run_sh_text,
+            "run.sh pr-diff mode must keep the graceful gitleaks-missing warning (not fail-closed)",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

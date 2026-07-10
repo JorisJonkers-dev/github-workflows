@@ -35,6 +35,50 @@ inputs:
 runs:
   using: composite
   steps:
+    # Install gitleaks and trufflehog if not already present.
+    # Pinned to exact release versions with SHA-256 checksums verified before
+    # the binary is moved into place.  The install is idempotent: when the
+    # tool is already on PATH the download is skipped entirely.
+    - name: Install gitleaks
+      continue-on-error: true
+      shell: bash
+      env:
+        GITLEAKS_VERSION: "8.30.1"
+        GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+      run: |
+        if command -v gitleaks >/dev/null 2>&1; then
+          echo "gitleaks already installed ($(gitleaks version 2>/dev/null || true)), skipping download"
+          exit 0
+        fi
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+        curl -sSfL "$url" -o "${tmp}/gitleaks.tar.gz"
+        echo "${GITLEAKS_SHA256}  ${tmp}/gitleaks.tar.gz" | sha256sum --check --strict -
+        tar -xzf "${tmp}/gitleaks.tar.gz" -C "${tmp}" gitleaks
+        sudo install -m 0755 "${tmp}/gitleaks" /usr/local/bin/gitleaks
+        echo "gitleaks $(gitleaks version) installed"
+
+    - name: Install trufflehog
+      continue-on-error: true
+      shell: bash
+      env:
+        TRUFFLEHOG_VERSION: "3.95.9"
+        TRUFFLEHOG_SHA256: "f6d1106b85107d79527ed7a5b98b592beadd8b770dc3c9e8c1ad99e1b2cf127e"
+      run: |
+        if command -v trufflehog >/dev/null 2>&1; then
+          echo "trufflehog already installed ($(trufflehog --version 2>/dev/null || true)), skipping download"
+          exit 0
+        fi
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        url="https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz"
+        curl -sSfL "$url" -o "${tmp}/trufflehog.tar.gz"
+        echo "${TRUFFLEHOG_SHA256}  ${tmp}/trufflehog.tar.gz" | sha256sum --check --strict -
+        tar -xzf "${tmp}/trufflehog.tar.gz" -C "${tmp}" trufflehog
+        sudo install -m 0755 "${tmp}/trufflehog" /usr/local/bin/trufflehog
+        echo "trufflehog $(trufflehog --version 2>/dev/null || echo installed)"
+
     - name: Run leak scan
       shell: bash
       env:
