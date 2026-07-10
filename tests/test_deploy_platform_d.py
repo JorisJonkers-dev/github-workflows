@@ -218,12 +218,17 @@ class LeakScanModeTest(unittest.TestCase):
     def test_all_refs_mode_line_in_script(self) -> None:
         """T-D2: all-refs mode runs gitleaks with --log-opts=--all and --redact flags."""
         script_text = LEAK_SCAN_RUN.read_text(encoding="utf-8")
-        # Script uses line continuations; check for key flags independently.
-        # gitleaks v8.x uses --log-opts="--all" (not --all directly).
+        # gitleaks v8.x uses --log-opts="--all" instead of a standalone --all flag.
+        # Assert the combined form to catch regression back to the bare --all invocation.
         self.assertIn("gitleaks detect", script_text)
-        self.assertIn("--log-opts", script_text)
-        self.assertIn("--all", script_text)
+        self.assertIn('--log-opts="--all"', script_text)
         self.assertIn("--redact", script_text)
+        # Regression guard: the all-refs block must NOT use a standalone --all flag.
+        self.assertNotIn(
+            "      --all \\\n",
+            script_text,
+            "run.sh must not pass --all as a standalone flag to gitleaks detect (gitleaks v8.x removed it)",
+        )
 
     def test_path_mode_detects_ipv4_literal(self) -> None:
         """T-D2: path mode detects IPv4 literal and emits redacted gate-summary."""
