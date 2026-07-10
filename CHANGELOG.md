@@ -7,6 +7,13 @@
 * enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
 * fail Gradle warnings and deprecations while making JVM lint static-only by default
 
+## [0.12.2](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.12.1...v0.12.2) (2026-07-10)
+
+
+### Bug Fixes
+
+* **deploy-preview:** scorecard gate misjudges not_applicable, no_raw_secrets, and npm_signatures_verified ([#60](https://github.com/JorisJonkers-dev/github-workflows/issues/60)) ([77c8d5c](https://github.com/JorisJonkers-dev/github-workflows/commit/77c8d5cc86d6dbffc67c6345a81b7b37c724b0eb))
+
 ## [0.12.1](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.12.0...v0.12.1) (2026-07-10)
 
 
