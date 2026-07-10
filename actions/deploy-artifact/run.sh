@@ -136,15 +136,17 @@ main() {
 
   # (3) npm audit signatures — provenance verification
   # NOTE: npm audit signatures only works for packages from npmjs.com.
-  # Packages installed from GHPR (npm.pkg.github.com) will produce
-  # "found no dependencies to audit that were installed from a supported registry"
-  # which is expected and not a failure.
+  # Packages installed from GHPR (npm.pkg.github.com) will produce either:
+  #   "found no dependencies to audit that were installed from a supported registry"
+  # or (when --scope filters to zero matching packages):
+  #   "found no installed dependencies to audit"
+  # Both are expected skip-conditions, not failures.
   local provenance_verified=true
   local npm_audit_result
   npm_audit_result=$(npm audit signatures \
     --userconfig "$npmrc" \
     --scope @jorisjonkers-dev 2>&1) || {
-    if echo "$npm_audit_result" | grep -q "found no dependencies to audit that were installed from a supported registry"; then
+    if echo "$npm_audit_result" | grep -qE "found no dependencies to audit that were installed from a supported registry|found no installed dependencies to audit"; then
       warn "npm audit signatures skipped: package is from a private registry not supported by npm audit signatures"
       provenance_verified=false
     else
