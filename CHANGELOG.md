@@ -7,6 +7,13 @@
 * enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
 * fail Gradle warnings and deprecations while making JVM lint static-only by default
 
+## [0.12.1](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.12.0...v0.12.1) (2026-07-10)
+
+
+### Bug Fixes
+
+* **deploy-artifact:** handle npm audit no-deps skip for GHPR scoped packages ([5039ff0](https://github.com/JorisJonkers-dev/github-workflows/commit/5039ff071bd7472c6544771949b634f3aec570aa))
+
 ## [0.12.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.11.11...v0.12.0) (2026-07-09)
 
 
