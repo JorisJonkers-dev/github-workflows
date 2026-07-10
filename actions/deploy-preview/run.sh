@@ -529,7 +529,7 @@ main() {
   # (7) Emit SC-4 gate summary
   local overall
   overall=$(printf '%s' "$scorecard" \
-    | jq -r '[.[] | select(. == "fail")] | length == 0 | if . then "pass" else "fail" end' \
+    | jq -r '[.[] | select(type == "string" and startswith("fail"))] | length == 0 | if . then "pass" else "fail" end' \
     2>/dev/null || echo "fail")
   emit_gate_summary "deploy-validate" "Deploy Validate" "$overall" "scorecard-evaluated" "none"
 

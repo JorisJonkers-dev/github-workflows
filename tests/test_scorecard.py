@@ -21,6 +21,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_PREVIEW_RUN = ROOT / "actions/deploy-preview/run.sh"
 
+# The overall gate filter from run.sh step (7). Kept verbatim here; a drift
+# guard below asserts this exact string appears in run.sh so the two cannot
+# diverge silently. startswith("fail") (not == "fail") is load-bearing:
+# no_raw_secrets returns detail-suffixed values like "fail:raw-secret-in:<path>".
+OVERALL_GATE_JQ_FILTER = (
+    '[.[] | select(type == "string" and startswith("fail"))]'
+    ' | length == 0 | if . then "pass" else "fail" end'
+)
+
 # ---------------------------------------------------------------------------
 # Minimal YAML fixtures
 # ---------------------------------------------------------------------------
@@ -109,7 +118,7 @@ class NotApplicableIsPassTest(unittest.TestCase):
     """
     Verify that not_applicable values in route_owner_authmode_declared,
     stateful_policy_declared, and raw_manifests_guarded do not make
-    overall=fail. The jq filter `[.[] | select(. == "fail")] | length == 0`
+    overall=fail. The jq filter `[.[] | select(type == "string" and startswith("fail"))] | length == 0`
     must return true when all values are pass or not_applicable.
     """
 
@@ -127,7 +136,7 @@ class NotApplicableIsPassTest(unittest.TestCase):
         self.assertEqual(scorecard["raw_manifests_guarded"], "not_applicable")
 
         # Apply the overall gate filter: no "fail" values -> pass
-        fail_count = sum(1 for v in scorecard.values() if v == "fail")
+        fail_count = sum(1 for v in scorecard.values() if v.startswith("fail"))
         self.assertEqual(
             fail_count,
             0,
@@ -378,7 +387,7 @@ class OverallPassWhenAllNotApplicableOrPassTest(unittest.TestCase):
 
         # Apply the exact jq filter from run.sh
         result = subprocess.run(
-            ["jq", "-r", '[.[] | select(. == "fail")] | length == 0 | if . then "pass" else "fail" end'],
+            ["jq", "-r", OVERALL_GATE_JQ_FILTER],
             input=scorecard_json,
             check=False,
             stdout=subprocess.PIPE,
@@ -408,7 +417,7 @@ class OverallPassWhenAllNotApplicableOrPassTest(unittest.TestCase):
         }
         scorecard_json = json.dumps(scorecard)
         result = subprocess.run(
-            ["jq", "-r", '[.[] | select(. == "fail")] | length == 0 | if . then "pass" else "fail" end'],
+            ["jq", "-r", OVERALL_GATE_JQ_FILTER],
             input=scorecard_json,
             check=False,
             stdout=subprocess.PIPE,
@@ -427,11 +436,115 @@ class OverallPassWhenAllNotApplicableOrPassTest(unittest.TestCase):
         result = _run_compute_scorecard(MINIMAL_DEPLOYMENT_YML, MINIMAL_CONTRACT_YAML)
         self.assertEqual(result.returncode, 0, result.stderr)
         scorecard = json.loads(result.stdout)
-        fail_count = sum(1 for v in scorecard.values() if v == "fail")
+        fail_count = sum(1 for v in scorecard.values() if v.startswith("fail"))
         self.assertEqual(
             fail_count,
             0,
             f"Expected all checks to be pass or not_applicable on minimal fixture: {scorecard}",
+        )
+
+    def test_overall_fail_when_no_raw_secrets_has_detail_suffix(self) -> None:
+        """
+        Regression: a detail-suffixed fail value ("fail:raw-secret-in:<path>")
+        must count as a failure in the overall gate. The old exact-match filter
+        (. == "fail") missed it and wrongly passed the gate.
+        """
+        scorecard = {
+            "schema_pinned": "pass",
+            "context_pinned": "pass",
+            "no_latest_images": "pass",
+            "health_declared": "pass",
+            "route_owner_authmode_declared": "not_applicable",
+            "rollback_retention_acknowledged": "pass",
+            "no_raw_secrets": "fail:raw-secret-in:out/manifests/x.yaml",
+            "stateful_policy_declared": "not_applicable",
+            "raw_manifests_guarded": "not_applicable",
+            "npm_signatures_verified": "not_applicable",
+        }
+        result = subprocess.run(
+            ["jq", "-r", OVERALL_GATE_JQ_FILTER],
+            input=json.dumps(scorecard),
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, f"jq failed: {result.stderr}")
+        self.assertEqual(
+            result.stdout.strip(),
+            "fail",
+            "Overall must be 'fail' when no_raw_secrets carries a "
+            f"fail:raw-secret-in: detail suffix; got: {result.stdout.strip()!r}",
+        )
+
+    def test_overall_gate_filter_matches_run_sh_verbatim(self) -> None:
+        """
+        Drift guard: the jq filter used by these tests must appear verbatim in
+        run.sh, so the tests cannot silently diverge from the real gate.
+        """
+        text = DEPLOY_PREVIEW_RUN.read_text(encoding="utf-8")
+        self.assertIn(
+            OVERALL_GATE_JQ_FILTER,
+            text,
+            "run.sh overall gate filter differs from OVERALL_GATE_JQ_FILTER in tests",
+        )
+
+
+# ---------------------------------------------------------------------------
+# T-SC7: detail-suffixed fail values and filter drift protection
+# ---------------------------------------------------------------------------
+
+OVERALL_GATE_JQ_FILTER = (
+    '[.[] | select(type == "string" and startswith("fail"))] '
+    '| length == 0 | if . then "pass" else "fail" end'
+)
+
+
+class DetailSuffixedFailTest(unittest.TestCase):
+    """
+    no_raw_secrets reports failures as `fail:raw-secret-in:<path>` so the
+    message names the offending file. The overall gate filter must count such
+    detail-suffixed values as failures (startswith, not exact match).
+    """
+
+    def test_detail_suffixed_fail_counts_as_fail(self) -> None:
+        scorecard = {
+            "schema_pinned": "pass",
+            "context_pinned": "pass",
+            "no_latest_images": "pass",
+            "health_declared": "pass",
+            "route_owner_authmode_declared": "not_applicable",
+            "rollback_retention_acknowledged": "pass",
+            "no_raw_secrets": "fail:raw-secret-in:out/manifests/x.yaml",
+            "stateful_policy_declared": "not_applicable",
+            "raw_manifests_guarded": "not_applicable",
+            "npm_signatures_verified": "not_applicable",
+        }
+        result = subprocess.run(
+            ["jq", "-r", OVERALL_GATE_JQ_FILTER],
+            input=json.dumps(scorecard),
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, f"jq failed: {result.stderr}")
+        self.assertEqual(
+            result.stdout.strip(),
+            "fail",
+            "A detail-suffixed fail value (fail:raw-secret-in:...) must fail the gate",
+        )
+
+    def test_gate_filter_in_tests_matches_run_sh(self) -> None:
+        """
+        The jq filter used by these tests must appear verbatim in run.sh so the
+        two cannot drift silently.
+        """
+        run_sh_text = DEPLOY_PREVIEW_RUN.read_text(encoding="utf-8")
+        self.assertIn(
+            OVERALL_GATE_JQ_FILTER,
+            run_sh_text,
+            "run.sh overall gate jq filter drifted from the one asserted in tests",
         )
 
 
