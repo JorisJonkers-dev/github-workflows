@@ -589,9 +589,6 @@ class DeployPreviewRunShTest(unittest.TestCase):
             self.assertIn(fragment, self.run_sh, msg=f"Fragment '{fragment}' not rendered in deploy-preview/run.sh")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 # ---------------------------------------------------------------------------
 # T-D7: Leak-scan tool installation and fail-closed hardening
@@ -782,3 +779,7 @@ class LeakScanInstallAndFailClosedTest(unittest.TestCase):
             self.run_sh_text,
             "run.sh pr-diff mode must keep the graceful gitleaks-missing warning (not fail-closed)",
         )
+
+
+if __name__ == "__main__":
+    unittest.main()
