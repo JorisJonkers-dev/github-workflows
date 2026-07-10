@@ -216,10 +216,12 @@ class LeakScanModeTest(unittest.TestCase):
         self.assertIn("E_UNKNOWN_LEAK_SCAN_MODE", result.stderr)
 
     def test_all_refs_mode_line_in_script(self) -> None:
-        """T-D2: all-refs mode runs gitleaks with --all and --redact flags."""
+        """T-D2: all-refs mode runs gitleaks with --log-opts=--all and --redact flags."""
         script_text = LEAK_SCAN_RUN.read_text(encoding="utf-8")
-        # Script uses line continuations; check for key flags independently
+        # Script uses line continuations; check for key flags independently.
+        # gitleaks v8.x uses --log-opts="--all" (not --all directly).
         self.assertIn("gitleaks detect", script_text)
+        self.assertIn("--log-opts", script_text)
         self.assertIn("--all", script_text)
         self.assertIn("--redact", script_text)
 

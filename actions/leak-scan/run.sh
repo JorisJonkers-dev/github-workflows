@@ -132,7 +132,7 @@ run_all_refs_scan() {
   if command -v gitleaks >/dev/null 2>&1; then
     gitleaks detect \
       --source=. \
-      --all \
+      --log-opts="--all" \
       --redact \
       --report-path=gitleaks-report.json \
       2>&1 || gitleaks_exit=$?
