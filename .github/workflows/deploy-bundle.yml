@@ -57,9 +57,9 @@ name: 'Deploy Bundle'
       'bundle-ref': '${{ steps.bundle-ref.outputs.bundle-ref }}'
       'bundle-path': '${{ steps.bundle.outputs.bundle-path }}'
     'steps':
-      - 'uses': 'actions/checkout@v7'
+      - 'uses': 'actions/checkout@v7.0.0'
 
-      - 'uses': 'actions/checkout@v7'
+      - 'uses': 'actions/checkout@v7.0.0'
         'with':
           'repository': 'JorisJonkers-dev/github-workflows'
           'ref': '${{ github.job_workflow_sha }}'
