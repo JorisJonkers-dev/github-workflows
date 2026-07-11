@@ -49,7 +49,7 @@ name: 'Repository Hygiene Guard'
     'runs-on': 'ubuntu-latest'
     'if': '${{ !contains(github.event.pull_request.labels.*.name, inputs.override-label) }}'
     'steps':
-      - 'uses': 'actions/checkout@v7'
+      - 'uses': 'actions/checkout@v7.0.0'
         'with':
           'fetch-depth': 0
 
