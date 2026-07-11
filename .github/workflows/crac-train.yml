@@ -292,7 +292,7 @@ jobs:
         run: |
           docker rm -f crac-postgres crac-valkey crac-rabbitmq >/dev/null 2>&1 || true
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.1
         with:
           name: ${{ matrix.service }}-checkpoint
           path: checkpoint/
