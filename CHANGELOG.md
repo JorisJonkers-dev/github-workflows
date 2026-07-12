@@ -7,6 +7,13 @@
 * enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
 * fail Gradle warnings and deprecations while making JVM lint static-only by default
 
+## [0.12.6](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.12.5...v0.12.6) (2026-07-12)
+
+
+### Bug Fixes
+
+* **deploy-artifact:** anchor kind=Secret grep to prevent SecretStore over-match ([#73](https://github.com/JorisJonkers-dev/github-workflows/issues/73)) ([8e57f62](https://github.com/JorisJonkers-dev/github-workflows/commit/8e57f6243ae6373a0031f6cdad0d4b9cdc57f22c))
+
 ## [0.12.5](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.12.4...v0.12.5) (2026-07-10)
 
 
