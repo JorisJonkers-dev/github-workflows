@@ -207,18 +207,40 @@ run_pr_diff_scan() {
 
   printf '%s\n' "$changed_files" > changed-files.txt
 
+  # Build a temporary gitleaks config that extends the default rules and adds
+  # allowlist.paths entries for any EXCLUDE_PATHS prefixes.  gitleaks 8.x does
+  # not support path filtering flags, so path exclusion must be expressed via the
+  # config allowlist.  The temp config is cleaned up after the scan.
+  local gitleaks_config_flag=()
+  local gitleaks_tmp_config=""
+  local regex_prefix
+  if [[ -n "${EXCLUDE_PATHS:-}" ]]; then
+    gitleaks_tmp_config=$(mktemp --suffix=.toml)
+    {
+      printf '[extend]\nuseDefault = true\n\n[allowlist]\npaths = [\n'
+      for excl_prefix in $EXCLUDE_PATHS; do
+        # Escape the prefix as a regex: anchor with ^ and escape dots/special chars.
+        regex_prefix=$(printf '%s' "$excl_prefix" | sed 's/\./\\./g')
+        printf "  '^%s',\n" "$regex_prefix"
+      done
+      printf ']\n'
+    } > "$gitleaks_tmp_config"
+    gitleaks_config_flag=(--config="$gitleaks_tmp_config")
+  fi
+
   local gitleaks_exit=0
   if command -v gitleaks >/dev/null 2>&1; then
-    gitleaks detect \
-      --source=. \
-      --files-at-commit="$HEAD_REF" \
-      --include-paths=changed-files.txt \
+    gitleaks git \
+      --log-opts="${BASE_REF}..${HEAD_REF}" \
+      "${gitleaks_config_flag[@]}" \
       --redact \
       --report-path=gitleaks-diff-report.json \
+      . \
       2>&1 || gitleaks_exit=$?
   else
     printf '::warning::gitleaks not found; skipping gitleaks pr-diff scan\n'
   fi
+  [[ -n "$gitleaks_tmp_config" ]] && rm -f "$gitleaks_tmp_config"
 
   # Run path deny-list on changed files
   PATHS="$(printf '%s\n' "$changed_files" | tr '\n' ' ')"

@@ -230,6 +230,36 @@ class LeakScanModeTest(unittest.TestCase):
             "run.sh must not pass --all as a standalone flag to gitleaks detect (gitleaks v8.x removed it)",
         )
 
+    def test_pr_diff_mode_uses_gitleaks_git_with_log_opts(self) -> None:
+        """T-D2: pr-diff mode uses 'gitleaks git --log-opts' (not --files-at-commit or --include-paths).
+
+        gitleaks 8.x removed --files-at-commit and --include-paths from the detect
+        subcommand.  The correct replacement is 'gitleaks git --log-opts=BASE..HEAD'
+        which scans the git commit range that corresponds to the PR diff.
+        """
+        script_text = LEAK_SCAN_RUN.read_text(encoding="utf-8")
+        self.assertIn(
+            "gitleaks git",
+            script_text,
+            "run.sh pr-diff block must use 'gitleaks git' (not 'gitleaks detect' with removed flags)",
+        )
+        self.assertIn(
+            '--log-opts="${BASE_REF}..${HEAD_REF}"',
+            script_text,
+            "run.sh pr-diff block must pass --log-opts=BASE..HEAD to gitleaks git",
+        )
+        # Regression guards: these flags were removed in gitleaks 8.x
+        self.assertNotIn(
+            "--files-at-commit",
+            script_text,
+            "run.sh must not use --files-at-commit (removed in gitleaks 8.x; causes 'unknown flag' exit 1)",
+        )
+        self.assertNotIn(
+            "--include-paths",
+            script_text,
+            "run.sh must not use --include-paths (removed in gitleaks 8.x; causes 'unknown flag' exit 1)",
+        )
+
     def test_path_mode_detects_ipv4_literal(self) -> None:
         """T-D2: path mode detects IPv4 literal and emits redacted gate-summary."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -787,6 +817,36 @@ class LeakScanInstallAndFailClosedTest(unittest.TestCase):
             "gitleaks not found; skipping gitleaks pr-diff scan",
             self.run_sh_text,
             "run.sh pr-diff mode must keep the graceful gitleaks-missing warning (not fail-closed)",
+        )
+
+    # T-D7g: pr-diff mode must not contain removed gitleaks v8.x flags
+    def test_pr_diff_does_not_use_removed_gitleaks_flags(self) -> None:
+        """T-D7g: --files-at-commit and --include-paths were removed in gitleaks 8.x.
+
+        These flags cause 'gitleaks detect' to print help and exit 1, breaking
+        every pipeline run.  This test is a static drift guard that catches any
+        re-introduction of the removed flags.
+        """
+        self.assertNotIn(
+            "--files-at-commit",
+            self.run_sh_text,
+            "run.sh must not contain --files-at-commit (removed in gitleaks 8.x; breaks CI)",
+        )
+        self.assertNotIn(
+            "--include-paths",
+            self.run_sh_text,
+            "run.sh must not contain --include-paths (removed in gitleaks 8.x; breaks CI)",
+        )
+        # Positive guard: pr-diff must use the correct v8 invocation
+        self.assertIn(
+            "gitleaks git",
+            self.run_sh_text,
+            "run.sh pr-diff block must use 'gitleaks git' subcommand (correct for gitleaks 8.x)",
+        )
+        self.assertIn(
+            "--log-opts=",
+            self.run_sh_text,
+            "run.sh pr-diff block must use --log-opts to specify commit range (gitleaks 8.x API)",
         )
 
 
