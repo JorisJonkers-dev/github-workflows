@@ -514,7 +514,9 @@ class DeployArtifactRunShTest(unittest.TestCase):
 
     def test_reject_secret_kind(self) -> None:
         self.assertIn("E_FORBIDDEN_KIND", self.run_sh)
-        self.assertIn("kind: Secret", self.run_sh)
+        # Assert the anchored ERE pattern is used (not an unanchored substring),
+        # mirroring the deploy-preview fix from #62.
+        self.assertIn("^kind:[[:space:]]*Secret[[:space:]]*$", self.run_sh)
 
     def test_image_lock_missing_guard(self) -> None:
         self.assertIn("E_IMAGE_LOCK_MISSING", self.run_sh)

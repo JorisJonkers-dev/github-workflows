@@ -78,7 +78,7 @@ require_digest_ref() {
 reject_secret_kind() {
   local dir="$1"
   local found_files
-  found_files=$(grep -rl 'kind: Secret' "$dir" 2>/dev/null | tr '\n' ' ' || true)
+  found_files=$(grep -rlE '^kind:[[:space:]]*Secret[[:space:]]*$' "$dir" 2>/dev/null | tr '\n' ' ' || true)
   if [[ -n "$found_files" ]]; then
     emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
       "forbidden-kind-secret" "none"
