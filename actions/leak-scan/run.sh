@@ -209,12 +209,11 @@ run_pr_diff_scan() {
 
   local gitleaks_exit=0
   if command -v gitleaks >/dev/null 2>&1; then
-    gitleaks detect \
-      --source=. \
-      --files-at-commit="$HEAD_REF" \
-      --include-paths=changed-files.txt \
+    gitleaks git \
+      --log-opts="${BASE_REF}..${HEAD_REF}" \
       --redact \
       --report-path=gitleaks-diff-report.json \
+      . \
       2>&1 || gitleaks_exit=$?
   else
     printf '::warning::gitleaks not found; skipping gitleaks pr-diff scan\n'
