@@ -50,6 +50,64 @@ EOF
 
 path_scan_status="pass"
 
+# Scan only the lines a change adds, rather than whole files.
+#
+# The whole-file scan is right for all-refs and path modes, where the question is
+# "does this tree contain an address". It is the wrong question for pr-diff,
+# where what matters is whether this change introduces one. A private deploy
+# repository legitimately contains node addresses and subnet literals — one such
+# repository has them in 24 of 388 tracked files — so a whole-file scan there
+# fails on the content the repository exists to hold, and blocks every edit to
+# those files including edits that remove an address.
+#
+# Pre-existing content is not left unguarded: all-refs mode still reads whole
+# files across every ref, which is the mode built for that question.
+run_diff_deny_list_scan() {
+  local patterns_file="${GW_ROOT}/data/leak-patterns.json"
+  [[ -f "$patterns_file" ]] || fail "E_MISSING_LEAK_PATTERNS: ${patterns_file} not found"
+
+  local mode_categories
+  mode_categories=$(jq -r --arg mode "$deny_list" '.modes[$mode] // empty | .[]' "$patterns_file")
+  [[ -n "$mode_categories" ]] || fail "E_UNKNOWN_DENY_LIST_MODE: ${deny_list}"
+
+  local -a all_patterns=()
+  while IFS= read -r category; do
+    while IFS= read -r pattern; do
+      all_patterns+=("$pattern")
+    done < <(jq -r --arg cat "$category" '.categories[$cat].patterns[]' "$patterns_file")
+  done <<< "$mode_categories"
+
+  path_scan_status="pass"
+
+  # Added lines only, with the leading marker stripped so a pattern anchored at
+  # line start still behaves. --unified=0 keeps context lines out.
+  local added
+  added=$(git diff --unified=0 "$BASE_REF" "$HEAD_REF" -- $PATHS 2>/dev/null \
+    | grep -E '^\+' | grep -vE '^\+\+\+' | sed 's/^+//' || true)
+
+  if [[ -z "$added" ]]; then
+    printf '::notice::leak-scan: no added lines in scope\n'
+    emit_gate_summary "leak-scan" "Leak Scan" "pass" "no-added-lines" "none" --redacted
+    return 0
+  fi
+
+  local matched=0
+  for pattern in "${all_patterns[@]}"; do
+    local count
+    # Count only; matching content is never printed.
+    count=$(printf '%s\n' "$added" | grep -c -E "$pattern" || true)
+    [[ "$count" -gt 0 ]] && { path_scan_status="fail"; matched=$((matched + count)); }
+  done
+
+  if [[ "$path_scan_status" != "pass" ]]; then
+    printf '::warning::leak-scan: %d added line(s) match the deny-list (redacted)\n' "$matched"
+  fi
+
+  local reason="diff-deny-list-${path_scan_status}"
+  [[ "$path_scan_status" == "fail" ]] && reason="pattern-match-in-added-lines-REDACTED"
+  emit_gate_summary "leak-scan" "Leak Scan" "$path_scan_status" "$reason" "none" --redacted
+}
+
 run_path_deny_list_scan() {
   local patterns_file="${GW_ROOT}/data/leak-patterns.json"
   [[ -f "$patterns_file" ]] || fail "E_MISSING_LEAK_PATTERNS: ${patterns_file} not found"
@@ -242,9 +300,9 @@ run_pr_diff_scan() {
   fi
   [[ -n "$gitleaks_tmp_config" ]] && rm -f "$gitleaks_tmp_config"
 
-  # Run path deny-list on changed files
+  # Deny-list over the lines this change adds, not over whole files.
   PATHS="$(printf '%s\n' "$changed_files" | tr '\n' ' ')"
-  run_path_deny_list_scan
+  run_diff_deny_list_scan
 
   local overall_status="pass"
   [[ $gitleaks_exit -ne 0 ]] && overall_status="fail"
