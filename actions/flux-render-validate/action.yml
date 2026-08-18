@@ -1,5 +1,5 @@
 name: Flux Render Validate
-description: Install pinned render-validation tools and run platform-blueprints strict Flux render validation.
+description: Install pinned render-validation tools and run flux-modules strict Flux render validation.
 
 inputs:
   overlay-paths:
@@ -12,7 +12,7 @@ inputs:
   crd-catalog-source:
     description: Repository containing scripts/validate-flux-render.sh and schemas/crds.
     required: false
-    default: JorisJonkers-dev/platform-blueprints
+    default: JorisJonkers-dev/flux-modules
   crd-catalog-ref:
     description: Git ref for crd-catalog-source.
     required: false
@@ -41,7 +41,7 @@ runs:
       with:
         repository: ${{ inputs.crd-catalog-source }}
         ref: ${{ inputs.crd-catalog-ref }}
-        path: .platform-blueprints-flux-render
+        path: .flux-modules-flux-render
         persist-credentials: false
 
     - name: Install pinned Flux render-validation tools

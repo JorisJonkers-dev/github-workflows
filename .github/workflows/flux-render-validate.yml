@@ -16,7 +16,7 @@ on:
         description: Repository containing the CRD catalog and validation script.
         required: false
         type: string
-        default: JorisJonkers-dev/platform-blueprints
+        default: JorisJonkers-dev/flux-modules
       crd-catalog-ref:
         description: Git ref for the CRD catalog and validation script.
         required: false
