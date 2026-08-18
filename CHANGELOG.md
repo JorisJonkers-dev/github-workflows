@@ -7,6 +7,18 @@
 * enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
 * fail Gradle warnings and deprecations while making JVM lint static-only by default
 
+## [0.13.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.12.9...v0.13.0) (2026-08-18)
+
+
+### Features
+
+* **tofu-ci:** add a reusable OpenTofu workflow ([#83](https://github.com/JorisJonkers-dev/github-workflows/issues/83)) ([30e21ce](https://github.com/JorisJonkers-dev/github-workflows/commit/30e21ceb60f484e9f372466ce290de14a24e6a48))
+
+
+### Bug Fixes
+
+* **leak-scan:** scan the diff in pr-diff mode, not whole files ([#82](https://github.com/JorisJonkers-dev/github-workflows/issues/82)) ([7dd71fb](https://github.com/JorisJonkers-dev/github-workflows/commit/7dd71fbe1573f82cb20a3416b0e9ffa762c9657f))
+
 ## [0.12.9](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.12.8...v0.12.9) (2026-08-18)
 
 
