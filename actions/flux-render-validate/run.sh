@@ -38,7 +38,7 @@ normalize_overlays() {
 main() {
   local mode="${MODE:-strict}"
   local working_directory="${WORKING_DIRECTORY:-.}"
-  local platform_blueprints_dir=".platform-blueprints-flux-render"
+  local platform_blueprints_dir=".flux-modules-flux-render"
   local action_workspace="${GITHUB_WORKSPACE:-$(pwd)}"
   local platform_blueprints_path="${action_workspace}/${platform_blueprints_dir}"
 
