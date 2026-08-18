@@ -1,0 +1,162 @@
+name: Tofu CI
+
+# OpenTofu rather than Terraform: the licence change is why the fork exists, and
+# the provider ecosystem this needs is registry-compatible either way.
+on:
+  workflow_call:
+    inputs:
+      tofu-version:
+        description: OpenTofu version to install.
+        required: false
+        type: string
+        default: '1.10.3'
+      working-directory:
+        description: Directory that contains the root module.
+        required: false
+        type: string
+        default: .
+      format-command:
+        description: Format check command. Must fail on unformatted files.
+        required: false
+        type: string
+        default: tofu fmt -check -recursive
+      validate-command:
+        description: Validation command. Runs after init.
+        required: false
+        type: string
+        default: tofu validate
+      lint-command:
+        description: Optional extra lint command, for example tflint.
+        required: false
+        type: string
+        default: ''
+      test-command:
+        description: Optional test command, for example tofu test.
+        required: false
+        type: string
+        default: ''
+      plan:
+        description: >
+          Run tofu plan and fail when it reports pending changes. Requires
+          credentials for the providers and backend, so it is off by default;
+          a module with no reachable backend can still be format-checked and
+          validated without them.
+        required: false
+        type: boolean
+        default: false
+      backend-init-args:
+        description: Extra arguments for tofu init, for example -backend=false.
+        required: false
+        type: string
+        default: '-backend=false'
+    secrets:
+      env-file:
+        description: >
+          Newline-separated KEY=value pairs exported before the plan step, for
+          provider credentials. Never echoed.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  tofu:
+    name: Tofu CI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install OpenTofu
+        env:
+          TOFU_VERSION: ${{ inputs.tofu-version }}
+        run: |
+          set -euo pipefail
+
+          install_root="${RUNNER_TEMP:-/tmp}/tofu"
+          mkdir -p "${install_root}/bin"
+          echo "${install_root}/bin" >> "$GITHUB_PATH"
+
+          curl -fsSL \
+            "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_amd64.zip" \
+            -o "${install_root}/tofu.zip"
+          unzip -q "${install_root}/tofu.zip" -d "${install_root}/bin" tofu
+          chmod +x "${install_root}/bin/tofu"
+
+      - name: Report version
+        run: tofu version
+
+      # Formatting is checked before init so a misformatted module fails fast
+      # without downloading providers.
+      - name: Check formatting
+        if: ${{ inputs.format-command != '' }}
+        env:
+          FORMAT_COMMAND: ${{ inputs.format-command }}
+        run: bash -euo pipefail -c "$FORMAT_COMMAND"
+
+      - name: Initialise
+        env:
+          INIT_ARGS: ${{ inputs.backend-init-args }}
+        run: bash -euo pipefail -c "tofu init -input=false ${INIT_ARGS}"
+
+      - name: Validate
+        if: ${{ inputs.validate-command != '' }}
+        env:
+          VALIDATE_COMMAND: ${{ inputs.validate-command }}
+        run: bash -euo pipefail -c "$VALIDATE_COMMAND"
+
+      - name: Lint
+        if: ${{ inputs.lint-command != '' }}
+        env:
+          LINT_COMMAND: ${{ inputs.lint-command }}
+        run: bash -euo pipefail -c "$LINT_COMMAND"
+
+      - name: Test
+        if: ${{ inputs.test-command != '' }}
+        env:
+          TEST_COMMAND: ${{ inputs.test-command }}
+        run: bash -euo pipefail -c "$TEST_COMMAND"
+
+      # -detailed-exitcode distinguishes "no changes" (0) from "changes pending"
+      # (2) from "error" (1). A configured module that plans changes has drifted
+      # from what it declares, which is a failure worth reporting as one.
+      - name: Plan
+        if: ${{ inputs.plan }}
+        env:
+          ENV_FILE: ${{ secrets.env-file }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${ENV_FILE:-}" ]; then
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              case "$line" in
+                *=*) ;;
+                *) echo "Invalid env-file line; expected KEY=value" >&2; exit 1 ;;
+              esac
+              printf '%s\n' "$line" >> "$GITHUB_ENV"
+            done <<< "${ENV_FILE}"
+          fi
+
+          set +e
+          tofu plan -input=false -lock=false -detailed-exitcode -no-color > plan.txt 2>&1
+          status=$?
+          set -e
+
+          case "$status" in
+            0) echo "plan reports no changes" ;;
+            2)
+              echo "::error::tofu plan reports pending changes"
+              # The plan body can name resource attributes, so surface only the
+              # summary line rather than the whole output.
+              grep -E '^(Plan|No changes)' plan.txt || true
+              exit 1
+              ;;
+            *)
+              echo "::error::tofu plan failed"
+              tail -20 plan.txt
+              exit 1
+              ;;
+          esac
