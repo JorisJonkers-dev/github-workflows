@@ -55,6 +55,7 @@ jobs:
   lint:
     name: JVM Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
 
@@ -78,6 +79,7 @@ jobs:
   test:
     name: JVM Test
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
 

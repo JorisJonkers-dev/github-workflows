@@ -76,6 +76,7 @@ jobs:
   render-and-publish:
     name: Render and Publish
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       artifact-ref: ${{ steps.publish.outputs.artifact-ref }}
       artifact-digest: ${{ steps.publish.outputs.artifact-digest }}
@@ -149,6 +150,7 @@ jobs:
   finalize:
     name: Finalize
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: always()
     needs: [render-and-publish]
     outputs:

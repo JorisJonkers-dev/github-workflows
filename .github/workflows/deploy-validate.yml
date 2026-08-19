@@ -48,6 +48,7 @@ jobs:
   validate:
     name: Deploy Validate
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       preview-summary-artifact: deploy-preview-summary
       gate-summary-artifact: gate-summary-deploy-validate

@@ -63,6 +63,7 @@ jobs:
   tofu:
     name: Tofu CI
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: ${{ inputs.working-directory }}
