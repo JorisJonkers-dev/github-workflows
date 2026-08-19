@@ -47,6 +47,7 @@ name: 'Repository Hygiene Guard'
   'guard':
     'name': 'Repository Hygiene Guard'
     'runs-on': 'ubuntu-latest'
+    'timeout-minutes': 30
     'if': '${{ !contains(github.event.pull_request.labels.*.name, inputs.override-label) }}'
     'steps':
       - 'uses': 'actions/checkout@v7'

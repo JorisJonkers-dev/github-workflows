@@ -53,6 +53,7 @@ name: 'Deploy Bundle'
   'deploy-bundle':
     'name': 'Deploy Bundle'
     'runs-on': 'ubuntu-latest'
+    'timeout-minutes': 60
     'outputs':
       'bundle-ref': '${{ steps.bundle-ref.outputs.bundle-ref }}'
       'bundle-path': '${{ steps.bundle.outputs.bundle-path }}'

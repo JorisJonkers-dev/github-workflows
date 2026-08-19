@@ -47,6 +47,7 @@ jobs:
   scan:
     name: Leak Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       gate-summary-artifact: gate-summary-leak-scan
 

@@ -26,6 +26,7 @@ name: 'Add to Project'
   'add-to-project':
     'name': 'Add to Project'
     'runs-on': 'ubuntu-latest'
+    'timeout-minutes': 30
     'if': '${{ github.event.issue.node_id != '''' || github.event.pull_request.node_id != '''' }}'
     'env':
       'PROJECT_AUTOMATION_APP_ID': '${{ secrets.PROJECT_AUTOMATION_APP_ID }}'
