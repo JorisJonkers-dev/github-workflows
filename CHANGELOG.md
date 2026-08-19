@@ -7,6 +7,13 @@
 * enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
 * fail Gradle warnings and deprecations while making JVM lint static-only by default
 
+## [0.14.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.13.0...v0.14.0) (2026-08-19)
+
+
+### Features
+
+* **deploy-artifact:** emit an applyable bundle so Flux can consume the artifact ([#86](https://github.com/JorisJonkers-dev/github-workflows/issues/86)) ([aa05b95](https://github.com/JorisJonkers-dev/github-workflows/commit/aa05b95a6314c3b33b2bf87a2c3b1bbf0e26b38c))
+
 ## [0.13.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.12.9...v0.13.0) (2026-08-18)
 
 
