@@ -97,6 +97,7 @@ main() {
   local image_lock_path="${IMAGE_LOCK_PATH:-deploy/images.lock.json}"
   local context_ref="${CONTEXT_REF:?CONTEXT_REF is required}"
   local environments="${ENVIRONMENTS:-production}"
+  local apply_bundle="${APPLY_BUNDLE:-false}"
 
   # (1) Require digest-pinned context ref — fail early
   require_digest_ref "$context_ref"
@@ -243,6 +244,19 @@ main() {
       --env "$env" \
       --image-digests "$image_lock_path" \
       --out "out/metadata/${env}/kustomization-health.yml"
+
+    # A fragment is a schema document that wraps its payload, which kustomize and
+    # Flux both reject, so the artifact cannot be applied as published. Lifting the
+    # workload objects into out/apply/<env>/ with a kustomization.yaml is what lets
+    # fleet-infra consume this artifact through an OCIRepository instead of having
+    # this repository push files into its tree. The remaining fragments carry
+    # intent that aggregates across services, so the command reports them as
+    # skipped rather than emitting them.
+    if [[ "$apply_bundle" == "true" ]]; then
+      deploy-config-schema artifact emit-apply-bundle \
+        --manifests "out/manifests/${env}" \
+        --out "out/apply/${env}"
+    fi
   done
 
   # NOTE: steps 9 (kubeconform) and 10 (kustomize build dry-run) are intentionally
