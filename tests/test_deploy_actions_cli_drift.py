@@ -4,7 +4,7 @@ Regression tests for deploy-config-schema 0.16.0 CLI interface drift.
 Test groups:
   T-CLI1: Recorded-interface tests — parse run.sh invocations and compare the
           flag sets used against the checked-in interface spec
-          (tests/fixtures/deploy-artifact/cli-interface-0.16.0.json).
+          (tests/fixtures/deploy-artifact/cli-interface.json).
   T-CLI2: Count-parsing helper — verify the count_lines pattern (grep -c with
           || true instead of || echo 0) does not produce a two-line value.
   T-CLI3: deploy-preview positional args — second positional must be the
@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_PREVIEW_RUN = ROOT / "actions/deploy-preview/run.sh"
 DEPLOY_ARTIFACT_RUN = ROOT / "actions/deploy-artifact/run.sh"
 CLI_INTERFACE_SPEC = (
-    ROOT / "tests/fixtures/deploy-artifact/cli-interface-0.16.0.json"
+    ROOT / "tests/fixtures/deploy-artifact/cli-interface.json"
 )
 
 
@@ -84,6 +84,58 @@ def _extract_emit_contract_invocations(text: str) -> list[str]:
     return lines
 
 
+def _invoked_subcommands(text: str) -> set[str]:
+    """
+    Return the deploy-config-schema subcommand phrases a script actually runs.
+
+    Comment lines are skipped: run.sh documents a command it deliberately does
+    not call, and counting that as an invocation would demand a spec entry for
+    something the script warns against.
+    """
+    joined = text.replace("\\\n", " ")
+    phrases: set[str] = set()
+    for line in joined.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        stripped = re.sub(r"\s+#.*$", "", stripped)
+        for match in re.finditer(r"deploy-config-schema\s+([a-z][a-z-]*)(?:\s+([a-z][a-z-]*))?", stripped):
+            head, nested = match.group(1), match.group(2) or ""
+            phrases.add(f"{head} {nested}".strip() if head == "artifact" else head)
+    return phrases
+
+
+def _enclosing_condition(lines: list[str], index: int) -> str | None:
+    """
+    Walk upward from a line to the `if` that encloses it, stopping at the `fi`
+    that would close an earlier block, and return the condition if it tests
+    something. `if true; then` tests nothing and does not count as a guard.
+    """
+    depth = 0
+    for line in reversed(lines[:index]):
+        stripped = line.strip()
+        if stripped == "fi" or stripped.startswith("fi "):
+            depth += 1
+            continue
+        match = re.match(r"if\s+(.*?);\s*then$", stripped)
+        if not match:
+            continue
+        if depth:
+            depth -= 1
+            continue
+        condition = match.group(1).strip()
+        if condition in {"true", ":"}:
+            return None
+        return condition
+    return None
+
+
+def _spec_key(phrase: str) -> str:
+    if phrase == "render":
+        return "render_fragment"
+    return phrase.replace("-", "_").replace(" ", "_")
+
+
 def _flags_in_invocation(invocation: str) -> set[str]:
     """Extract all --flag tokens from an invocation string."""
     return set(re.findall(r"--[a-z][a-z0-9-]*", invocation))
@@ -102,8 +154,61 @@ class CliInterfaceSpecTest(unittest.TestCase):
         cls.artifact_text = read_script(DEPLOY_ARTIFACT_RUN)
 
     def test_spec_fixture_exists_and_has_version(self) -> None:
+        # Asserted as a shape, not a literal: pinning the expected value here is
+        # what let the spec sit at 0.16.0 while the service repos had moved on,
+        # since bumping the toolkit did not fail this test.
         self.assertIn("version", self.spec)
-        self.assertEqual(self.spec["version"], "0.16.0")
+        self.assertRegex(self.spec["version"], r"^\d+\.\d+\.\d+$")
+
+    def test_every_invoked_subcommand_is_recorded_in_the_spec(self) -> None:
+        # Without this, adding a new deploy-config-schema invocation to either
+        # script passes every other test in this file: the spec is only consulted
+        # for subcommands it already knows about.
+        for name, script in (("deploy-preview", self.preview_text), ("deploy-artifact", self.artifact_text)):
+            for phrase in _invoked_subcommands(script):
+                key = _spec_key(phrase)
+                self.assertIn(
+                    key,
+                    self.spec["subcommands"],
+                    f"{name}/run.sh invokes 'deploy-config-schema {phrase}' but the spec has no {key} entry",
+                )
+
+    def test_unimplemented_subcommands_are_only_invoked_behind_a_guard(self) -> None:
+        # A subcommand the toolkit does not provide must not run unconditionally,
+        # or every publish fails with an unknown-subcommand error.
+        for key, entry in self.spec["subcommands"].items():
+            if entry.get("implemented", True):
+                continue
+            phrase = key.replace("artifact_", "artifact ", 1).replace("_", "-")
+            for name, script in (("deploy-preview", self.preview_text), ("deploy-artifact", self.artifact_text)):
+                lines = script.splitlines()
+                hits = [i for i, line in enumerate(lines) if phrase in line and not line.strip().startswith("#")]
+                for index in hits:
+                    self.assertTrue(
+                        _enclosing_condition(lines, index),
+                        f"{name}/run.sh line {index + 1} calls unimplemented {phrase} with no enclosing test command",
+                    )
+
+    def test_deploy_artifact_emit_apply_bundle_has_required_flags(self) -> None:
+        joined = self.artifact_text.replace("\\\n", " ")
+        invocations = [
+            line.strip()
+            for line in joined.splitlines()
+            if "artifact emit-apply-bundle" in line and "deploy-config-schema" in line
+        ]
+        self.assertEqual(len(invocations), 1, "expected exactly one emit-apply-bundle invocation")
+        required = set(self.spec["subcommands"]["artifact_emit_apply_bundle"]["required_flags"])
+        self.assertTrue(
+            required.issubset(_flags_in_invocation(invocations[0])),
+            f"emit-apply-bundle is missing {sorted(required - _flags_in_invocation(invocations[0]))}",
+        )
+
+    def test_emit_apply_bundle_is_gated_so_older_toolkits_do_not_break(self) -> None:
+        # The subcommand does not exist before 0.20.0, and service repos pin the
+        # toolkit version independently of this action, so an ungated call would
+        # fail the publish for any repo still on an older pin.
+        self.assertIn('if [[ "$apply_bundle" == "true" ]]', self.artifact_text)
+        self.assertIn('local apply_bundle="${APPLY_BUNDLE:-false}"', self.artifact_text)
 
     def test_spec_has_render_fragment_subcommand(self) -> None:
         self.assertIn("render_fragment", self.spec["subcommands"])

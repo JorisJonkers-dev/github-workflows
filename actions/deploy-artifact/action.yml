@@ -15,6 +15,14 @@ inputs:
   schema-version:
     description: Exact npm version of @jorisjonkers-dev/deploy-config-schema.
     required: true
+  apply-bundle:
+    description: >
+      Emit out/apply/<env>/ holding the workload objects lifted out of the
+      rendered fragments plus a kustomization.yaml, so fleet-infra can track this
+      artifact with an OCIRepository instead of receiving pushed files. Requires
+      deploy-config-schema >= 0.20.0; leave false on older pins.
+    required: false
+    default: "false"
   image-lock-path:
     description: Path to images.lock.json (relative to service repo root).
     required: false
@@ -43,6 +51,7 @@ runs:
         ARTIFACT_NAME: ${{ inputs.artifact-name }}
         SCHEMA_VERSION: ${{ inputs.schema-version }}
         IMAGE_LOCK_PATH: ${{ inputs.image-lock-path }}
+        APPLY_BUNDLE: ${{ inputs.apply-bundle }}
         CONTEXT_REF: ${{ inputs.context-ref }}
         ENVIRONMENTS: ${{ inputs.environments }}
         GW_ROOT: ${{ github.action_path }}/../..

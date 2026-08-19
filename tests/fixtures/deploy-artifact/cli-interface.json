@@ -1,0 +1,109 @@
+{
+  "version": "0.20.0",
+  "description": "Recorded CLI argument shapes for @jorisjonkers-dev/deploy-config-schema, derived from src/deployment/commands.ts and src/cli.ts in that repository. Any change to the flags used in actions/deploy-artifact/run.sh or actions/deploy-preview/run.sh must be reflected here first; a subcommand invoked by either script with no entry here fails the completeness test. The filename carries no version so that bumping the pinned toolkit does not require renaming this fixture.",
+  "subcommands": {
+    "render_fragment": {
+      "synopsis": "render <fragment-id> <deploy-dir> --env <env> --images <images.lock.json> (--context-dir <dir> | --context <ref@sha256:..> --context-path <file>) [--output <path>]",
+      "positionals": [
+        "fragment-id",
+        "deploy-dir"
+      ],
+      "required_flags": [
+        "--env",
+        "--images"
+      ],
+      "exclusive_groups": [
+        [
+          "--context-dir"
+        ],
+        [
+          "--context",
+          "--context-path"
+        ]
+      ],
+      "optional_flags": [
+        "--output"
+      ],
+      "notes": [
+        "The second positional is the deploy directory (e.g. 'deploy'), NOT the deployment.yml file.",
+        "The CLI routes to runFragmentRender when the first positional resolves to a fragment adapter.",
+        "context must be passed either as --context-dir (local dir containing cluster-context-public.yml) or as --context <digest-ref> plus --context-path <local-file>."
+      ],
+      "implemented": true
+    },
+    "artifact_emit_contract": {
+      "synopsis": "artifact emit-contract --artifact-name <name> --environments <e1,e2> --images <images.lock.json> --context-ref <ref@sha256:..> --deployment <deployment.yml> --context <cluster-context.yml> --out <path> [--provenance-verified true|false] [--output-root <dir>]",
+      "required_flags": [
+        "--artifact-name",
+        "--environments",
+        "--images",
+        "--context-ref",
+        "--deployment",
+        "--context",
+        "--out"
+      ],
+      "optional_flags": [
+        "--provenance-verified",
+        "--output-root"
+      ],
+      "absent_flags": [
+        "--schema-version"
+      ],
+      "notes": [
+        "--schema-version does NOT exist in this subcommand; do not pass it.",
+        "--deployment is required (path to deployment.yml).",
+        "--context is required (path to the pulled cluster-context-public.yml file).",
+        "--context-ref is required (the OCI digest ref string, e.g. ghcr.io/...@sha256:...).",
+        "--environments takes a comma-separated string (e.g. 'production,staging').",
+        "The subcommand is 'artifact emit-contract' (two words after deploy-config-schema)."
+      ],
+      "implemented": true
+    },
+    "artifact_emit_kustomization_health": {
+      "synopsis": "artifact emit-kustomization-health --deployment <deployment.yml> --env <env> --image-digests <images.lock.json> --out <path>",
+      "required_flags": [
+        "--deployment",
+        "--env",
+        "--image-digests",
+        "--out"
+      ],
+      "optional_flags": [],
+      "notes": [
+        "Takes a single --env per invocation; call once per environment."
+      ],
+      "implemented": true
+    },
+    "artifact_emit_apply_bundle": {
+      "synopsis": "artifact emit-apply-bundle --manifests <dir> --out <dir>",
+      "required_flags": [
+        "--manifests",
+        "--out"
+      ],
+      "optional_flags": [],
+      "since": "0.20.0",
+      "notes": [
+        "Lifts the Kubernetes objects out of kubernetes-workload-fragment.yaml into one document per object plus a kustomization.yaml, so an OCIRepository plus Kustomization pair can apply the artifact.",
+        "The remaining fragments carry intent that aggregates across services and are reported as skipped, not emitted.",
+        "Invoked only when the apply-bundle input is true, because it does not exist before 0.20.0."
+      ],
+      "implemented": true
+    },
+    "artifact_validate_raw_manifests": {
+      "synopsis": "artifact validate-raw-manifests --deployment <deployment.yml> --root <dir> --output-root <dir> --forbidden-kinds <k1,k2> --out <path>",
+      "required_flags": [
+        "--deployment",
+        "--root",
+        "--output-root",
+        "--forbidden-kinds",
+        "--out"
+      ],
+      "optional_flags": [],
+      "implemented": false,
+      "notes": [
+        "No published version of the toolkit provides this subcommand: grepping the packaged dist of 0.16.0 and 0.19.0 finds no reference to validate-raw-manifests.",
+        "The call is reached only when <deploy-dir>/raw-manifests exists, and no service repository has that directory, so the path has never executed.",
+        "Recorded as unimplemented rather than removed so the gap is visible: a repository that adds raw-manifests today would fail its publish with an unknown-subcommand error instead of getting the validation the step claims to perform."
+      ]
+    }
+  }
+}
