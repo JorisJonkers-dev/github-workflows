@@ -103,7 +103,14 @@ export function emitContract(bin, { artifactName, environments, images, contextR
     '--context', contextFile,
     '--out', outFile,
   ]
-  if (provenanceVerified !== undefined) args.push('--provenance-verified', String(provenanceVerified))
+  if (provenanceVerified !== undefined) {
+    // The contract field is a boolean: either provenance was verified or it was
+    // not. 'not_applicable' distinguishes "could not be evaluated" from "failed
+    // verification" for the scorecard only, and records as not verified here.
+    // The toolkit happens to coerce an unknown string the same way; saying it
+    // explicitly means the recorded value does not depend on that.
+    args.push('--provenance-verified', provenanceVerified === true ? 'true' : 'false')
+  }
   if (outputRoot) args.push('--output-root', outputRoot)
   const { status, stdout, stderr } = run(bin, args, { cwd })
   if (status !== 0) throw new ToolkitError('emit-contract failed', { code: status, stderr: stderr || stdout, args })
