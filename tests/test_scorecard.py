@@ -205,28 +205,31 @@ spec:
 
 
 # ---------------------------------------------------------------------------
-# T-SC3: no_raw_secrets passes when out/manifests/ is missing or empty
+# T-SC3: no_raw_secrets is not_applicable when out/manifests/ is missing or empty
 # ---------------------------------------------------------------------------
 
 
-class NoRawSecretsPassWhenEmptyTest(unittest.TestCase):
+class NoRawSecretsEmptyTreeTest(unittest.TestCase):
     """
-    When out/manifests/ does not exist or is empty, no_raw_secrets must be pass.
-    This validates that empty/missing manifests do NOT trigger a fail (Bug 1 fix).
+    When out/manifests/ does not exist or is empty, no_raw_secrets must not be
+    fail: an absent tree is not a leak (Bug 1 fix). It reports not_applicable
+    rather than pass, because nothing was inspected — reporting pass off an
+    empty directory made the check vacuous whenever renders failed, which they
+    did on every consumer repo between 2026-07-08 and 2026-08-20.
     """
 
-    def test_no_raw_secrets_pass_when_manifests_dir_absent(self) -> None:
+    def test_no_raw_secrets_not_applicable_when_manifests_dir_absent(self) -> None:
         # Default: no out/manifests/ created
         result = _run_compute_scorecard(MINIMAL_DEPLOYMENT_YML, MINIMAL_CONTRACT_YAML)
         self.assertEqual(result.returncode, 0, result.stderr)
         scorecard = json.loads(result.stdout)
         self.assertEqual(
             scorecard["no_raw_secrets"],
-            "pass",
-            f"Expected pass when out/manifests/ is absent, got: {scorecard['no_raw_secrets']}",
+            "not_applicable",
+            f"Expected not_applicable when out/manifests/ is absent, got: {scorecard['no_raw_secrets']}",
         )
 
-    def test_no_raw_secrets_pass_when_manifests_dir_empty(self) -> None:
+    def test_no_raw_secrets_not_applicable_when_manifests_dir_empty(self) -> None:
         # Create empty out/manifests/ directory
         setup = "mkdir -p out/manifests/"
         result = _run_compute_scorecard(
@@ -236,8 +239,8 @@ class NoRawSecretsPassWhenEmptyTest(unittest.TestCase):
         scorecard = json.loads(result.stdout)
         self.assertEqual(
             scorecard["no_raw_secrets"],
-            "pass",
-            f"Expected pass when out/manifests/ is empty, got: {scorecard['no_raw_secrets']}",
+            "not_applicable",
+            f"Expected not_applicable when out/manifests/ is empty, got: {scorecard['no_raw_secrets']}",
         )
 
     def test_no_raw_secrets_pass_when_manifests_have_no_secrets(self) -> None:
@@ -339,31 +342,37 @@ class NoRawSecretsFailWithFileNameTest(unittest.TestCase):
 
 class NoRawSecretsNotOverriddenByRenderFailureTest(unittest.TestCase):
     """
-    Bug 1 fix: the block that set no_raw_secrets='fail' when render_failures
-    is non-empty has been removed. compute_scorecard itself determines the value;
-    the main() render failure loop only emits warnings.
+    A render failure must not be reported as a secret leak. An earlier bug set
+    no_raw_secrets='fail' whenever render_failures was non-empty; that override
+    is gone and compute_scorecard alone determines the value from the manifest
+    state, while main() only warns about render failures.
 
-    We test this by calling compute_scorecard directly (bypassing main). Since
-    compute_scorecard ignores render_failures entirely (they live in main), the
-    value must reflect the actual manifest state, not a forced fail.
+    An empty out/manifests/ is reported as not_applicable rather than pass:
+    nothing was inspected, so there is no evidence either way. That still keeps
+    a render failure out of the 'fail' bucket, and not_applicable counts toward
+    an overall pass, so it does not turn the gate red on its own.
     """
 
-    def test_no_raw_secrets_is_pass_when_manifests_empty_despite_render_failures(
-        self,
-    ) -> None:
+    def test_no_raw_secrets_is_not_applicable_when_manifests_empty(self) -> None:
         # Simulate what happens after render failures: out/manifests/ exists but
-        # is empty (renders wrote nothing). The old override would set fail; the
-        # fix means compute_scorecard returns pass.
+        # is empty (renders wrote nothing).
         setup = "mkdir -p out/manifests/"
         result = _run_compute_scorecard(
             MINIMAL_DEPLOYMENT_YML, MINIMAL_CONTRACT_YAML, extra_setup=setup
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         scorecard = json.loads(result.stdout)
+        self.assertNotIn(
+            "fail",
+            scorecard["no_raw_secrets"],
+            "a render failure must never be reported as a secret leak; got: "
+            f"{scorecard['no_raw_secrets']}",
+        )
         self.assertEqual(
             scorecard["no_raw_secrets"],
-            "pass",
-            f"no_raw_secrets must be pass when manifests empty (render failures do not override it); got: {scorecard['no_raw_secrets']}",
+            "not_applicable",
+            "an empty manifest tree means nothing was inspected, not that "
+            f"nothing was found; got: {scorecard['no_raw_secrets']}",
         )
 
     def test_override_block_is_absent_from_script(self) -> None:
