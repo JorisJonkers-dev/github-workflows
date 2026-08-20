@@ -1,0 +1,10 @@
+# Temporary diagnostic caller. Calls the reusable workflow by full cross-repo
+# path so the reusable-workflow contexts populate the way they do for the
+# service repositories.
+name: Diag Caller
+on:
+  workflow_dispatch: {}
+permissions: {}
+jobs:
+  call:
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/_diag-reusable.yml@diag/workflow-ref-contexts

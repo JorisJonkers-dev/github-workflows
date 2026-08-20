@@ -1,0 +1,21 @@
+# Temporary diagnostic: report which context values are populated inside a
+# reusable workflow, so the ref used to check out this repository's actions can
+# be derived from something that is actually present.
+name: Diag Reusable
+on:
+  workflow_call: {}
+permissions: {}
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Report context values
+        run: |
+          printf 'job_workflow_sha=[%s]\n' "${{ github.job_workflow_sha }}"
+          printf 'job_workflow_ref=[%s]\n' "${{ github.job_workflow_ref }}"
+          printf 'workflow_ref=[%s]\n'     "${{ github.workflow_ref }}"
+          printf 'workflow_sha=[%s]\n'     "${{ github.workflow_sha }}"
+          printf 'sha=[%s]\n'              "${{ github.sha }}"
+          printf 'ref=[%s]\n'              "${{ github.ref }}"
+          printf 'repository=[%s]\n'       "${{ github.repository }}"
