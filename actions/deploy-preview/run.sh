@@ -169,14 +169,21 @@ compute_scorecard() {
   fi
 
   # no_raw_secrets: fail if any rendered manifest contains a raw Secret resource.
-  # A missing or empty out/manifests/ directory (e.g. all renders failed) cannot
-  # contain secrets, so the check correctly passes in that case.
+  # With nothing rendered the grep has nothing to inspect, so the result is
+  # not_applicable rather than pass — an empty directory is an absence of
+  # evidence, not evidence that no secret would have been rendered.
   local no_raw_secrets="pass"
-  local raw_secrets_file
-  raw_secrets_file=$(grep -rlE '^kind:[[:space:]]*Secret[[:space:]]*$' out/manifests/ 2>/dev/null \
-    | head -1 || true)
-  if [[ -n "$raw_secrets_file" ]]; then
-    no_raw_secrets="fail:raw-secret-in:${raw_secrets_file}"
+  local rendered_count
+  rendered_count=$(find out/manifests -type f -name '*.yaml' 2>/dev/null | grep -c . || true)
+  if [[ "${rendered_count:-0}" -eq 0 ]]; then
+    no_raw_secrets="not_applicable"
+  else
+    local raw_secrets_file
+    raw_secrets_file=$(grep -rlE '^kind:[[:space:]]*Secret[[:space:]]*$' out/manifests/ 2>/dev/null \
+      | head -1 || true)
+    if [[ -n "$raw_secrets_file" ]]; then
+      no_raw_secrets="fail:raw-secret-in:${raw_secrets_file}"
+    fi
   fi
 
   # stateful_policy_declared: not_applicable if no stateful workloads
@@ -452,7 +459,7 @@ main() {
         --context "$context_ref" \
         --context-path "$context_file" \
         --images "$image_lock_path" \
-        --output "out/manifests/preview/${env}" \
+        --output "out/manifests/preview/${env}/${fragment}.yaml" \
         2>"$render_stderr_file" || render_exit=$?
 
       if [[ "$render_exit" -ne 0 ]]; then
