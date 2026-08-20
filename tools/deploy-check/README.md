@@ -38,6 +38,24 @@ fails with `E_SCHEMA_VERSION_MISMATCH`.
 Already have the context pulled by digest? Pass `--context-ref` together with
 `--context-path <cluster-context-public.yml>` instead of `--context-dir`.
 
+`--context-dir` may point at either the directory holding
+`cluster-context-public.yml` or the root of a pulled context package; the file
+is located by searching, preferring `context/public/`.
+
+## Publishing options
+
+The `deploy-artifact` action drives the same command with two extra flags:
+
+| flag | meaning |
+|---|---|
+| `--apply-bundle <bool>` | lift the applyable objects into `out/apply/<env>`. Only artifacts consumed through an `OCIRepository` need them. Default `true`. |
+| `--provenance-verified <true\|false\|not_applicable>` | record the npm provenance result. `not_applicable` is for a registry that cannot be audited at all — `npm audit signatures` only works for packages from npmjs.com — and reports as `not_applicable` rather than a failed verification, which would block every publish. The artifact contract records a boolean, so `not_applicable` is written there as `false`. |
+
+`--environments` accepts a comma-separated list. Names must match
+`^[a-z0-9][a-z0-9-]*$`; carriage returns and surrounding whitespace are
+stripped, duplicates are dropped with a warning, and an empty list is an error
+rather than a silent no-op.
+
 Exit status is 0 when every check passes or is `not_applicable`, and 1 when a
 check fails or a render fails. Results are written to `out/`:
 `scorecard.json`, `scorecard-detail.json` (with a reason per check),

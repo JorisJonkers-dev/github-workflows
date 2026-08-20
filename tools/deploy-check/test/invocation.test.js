@@ -236,3 +236,14 @@ test('emit-contract names deployment.yml explicitly', () => {
   const call = calls(f).find((a) => a[0] === 'artifact' && a[1] === 'emit-contract')
   assert.match(call[call.indexOf('--deployment') + 1], /deployment\.yml$/)
 })
+
+// The contract field is a boolean. not_applicable is a scorecard distinction,
+// and must reach the toolkit as false rather than as an unknown string whose
+// coercion happens to be right.
+test('not_applicable provenance records as false in the contract', () => {
+  const f = fixture()
+  invoke(f, { provenanceVerified: 'not_applicable' })
+  const call = calls(f).find((a) => a[0] === 'artifact' && a[1] === 'emit-contract')
+  assert.equal(call[call.indexOf('--provenance-verified') + 1], 'false')
+  assert.ok(!call.includes('not_applicable'))
+})
