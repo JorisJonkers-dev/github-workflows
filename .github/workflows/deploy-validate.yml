@@ -56,11 +56,15 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      # Checkout github-workflows at the workflow SHA so the action is in sync
+      # Checkout github-workflows at this workflow file's own released version.
+      # github.job_workflow_sha is empty inside a reusable workflow, which made
+      # actions/checkout silently fall back to the default branch, so every
+      # consumer ran main regardless of the tag it pinned. release-please keeps
+      # the literal below in step with the tag this file ships in.
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: JorisJonkers-dev/github-workflows
-          ref: ${{ github.job_workflow_sha }}
+          ref: v0.15.1 # x-release-please-version
           path: .github-workflows
           persist-credentials: false
 
