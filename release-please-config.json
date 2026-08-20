@@ -8,7 +8,61 @@
       "include-component-in-tag": false,
       "bump-minor-pre-major": true,
       "draft": false,
-      "prerelease": false
+      "prerelease": false,
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": ".github/workflows/deploy-artifact.yml"
+        },
+        {
+          "type": "generic",
+          "path": ".github/workflows/deploy-bundle.yml"
+        },
+        {
+          "type": "generic",
+          "path": ".github/workflows/deploy-config-render-drift.yml"
+        },
+        {
+          "type": "generic",
+          "path": ".github/workflows/deploy-sources-render.yml"
+        },
+        {
+          "type": "generic",
+          "path": ".github/workflows/deploy-validate.yml"
+        },
+        {
+          "type": "generic",
+          "path": ".github/workflows/flux-render-validate.yml"
+        },
+        {
+          "type": "generic",
+          "path": ".github/workflows/gitops-ci.yml"
+        },
+        {
+          "type": "generic",
+          "path": ".github/workflows/jvm-ci.yml"
+        },
+        {
+          "type": "generic",
+          "path": ".github/workflows/leak-scan.yml"
+        },
+        {
+          "type": "generic",
+          "path": ".github/workflows/migration-guard.yml"
+        },
+        {
+          "type": "generic",
+          "path": ".github/workflows/node-ci.yml"
+        },
+        {
+          "type": "generic",
+          "path": ".github/workflows/platform-config-validate.yml"
+        },
+        {
+          "type": "generic",
+          "path": ".github/workflows/publish-api-clients.yml"
+        }
+      ]
     }
   }
 }

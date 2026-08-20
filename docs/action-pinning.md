@@ -24,10 +24,47 @@ renovate.json when one is added.
    human-readable while the SHA pins the runtime.
 3. Renovate will open a weekly digest-bump PR when a newer version is published.
 
-## Why `JorisJonkers-dev/github-workflows` is exempt
+## How `JorisJonkers-dev/github-workflows` pins itself
 
-Digest-pinning a reusable workflow in the **same** org would break the
-`job_workflow_sha` self-checkout pattern used by deploy-artifact, leak-scan, and
-deploy-validate: those workflows check out github-workflows at `github.job_workflow_sha`
-to guarantee the action code matches the workflow that called it, which is exactly the
-integrity contract semver tagging provides within an org-controlled repo.
+Reusable workflows here check out this repository to run an action or script from
+it. That checkout must land on the same version as the workflow file doing the
+checking out, or a consumer pinning a tag gets that tag's workflow driving some
+other version's code.
+
+It used to use `ref: ${{ github.job_workflow_sha }}`, on the assumption that the
+context names the reusable workflow's own commit. **It does not.** Echoing the
+contexts inside a reusable workflow in a real run gives:
+
+```
+job_workflow_sha=[]
+job_workflow_ref=[]
+workflow_ref=[<owner>/<repo>/.github/workflows/<caller>.yml@refs/pull/97/merge]
+```
+
+Both `job_workflow_*` values are empty, and `workflow_ref` describes the
+*caller*. With an empty `ref`, `actions/checkout` falls back to the default
+branch, so every consumer ran `main` regardless of the tag it pinned — visible
+in the run log as:
+
+```
+git fetch --no-tags --prune --depth=1 origin +refs/heads/main
+git checkout --progress --force -B main refs/remotes/origin/main
+```
+
+Nothing failed; a tag pin simply had no effect on the action code.
+
+Since no context carries the value, the ref is a literal:
+
+```yaml
+ref: v1.2.3 # x-release-please-version
+```
+
+release-please rewrites it in the release PR via `extra-files`, so the workflow
+file shipped inside a tag references that same tag. `tests/test_actions_checkout_pinned.py`
+enforces both halves: no workflow may use `job_workflow_sha`, and every literal
+must be listed for bumping — an unmaintained literal is a stale pin waiting to
+happen.
+
+One consequence worth knowing: a tag released *before* this change still
+contains the empty-ref pattern, so consumers pinned to an older tag keep running
+`main` until they move to a tag that includes it.
