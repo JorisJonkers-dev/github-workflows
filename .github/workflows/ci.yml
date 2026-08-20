@@ -103,10 +103,26 @@ jobs:
   # explicitly fails unless every dependency succeeded -- so a skipped or
   # failed gating job can never be mistaken for a green pipeline.
   # ---------------------------------------------------------------------------
+  node-tests:
+    name: Deploy Check Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install deploy-check dependencies
+        working-directory: tools/deploy-check
+        run: npm ci --no-audit --no-fund
+      - name: Run deploy-check unit tests
+        working-directory: tools/deploy-check
+        run: npm test
+
   pipeline-complete:
     name: Pipeline Complete
     if: always()
-    needs: [actionlint, yaml-validity, python-tests]
+    needs: [actionlint, yaml-validity, python-tests, node-tests]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all gating jobs succeeded

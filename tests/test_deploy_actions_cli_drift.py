@@ -32,6 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 DEPLOY_PREVIEW_RUN = ROOT / "actions/deploy-preview/run.sh"
 DEPLOY_ARTIFACT_RUN = ROOT / "actions/deploy-artifact/run.sh"
+DEPLOY_PREVIEW_ACTION = ROOT / "actions/deploy-preview/action.yml"
 CLI_INTERFACE_SPEC = (
     ROOT / "tests/fixtures/deploy-artifact/cli-interface.json"
 )
@@ -221,22 +222,6 @@ class CliInterfaceSpecTest(unittest.TestCase):
     def _required_render_flags(self) -> set[str]:
         return set(self.spec["subcommands"]["render_fragment"]["required_flags"])
 
-    def test_deploy_preview_render_has_required_flags(self) -> None:
-        invocations = _extract_render_fragment_invocations(self.preview_text)
-        self.assertGreater(
-            len(invocations),
-            0,
-            "deploy-preview/run.sh must contain at least one render <fragment> invocation",
-        )
-        required = self._required_render_flags()
-        for inv in invocations:
-            flags = _flags_in_invocation(inv)
-            missing = required - flags
-            self.assertFalse(
-                missing,
-                f"deploy-preview render invocation missing required flags {missing}: {inv!r}",
-            )
-
     def test_deploy_artifact_render_has_required_flags(self) -> None:
         invocations = _extract_render_fragment_invocations(self.artifact_text)
         self.assertGreater(
@@ -260,22 +245,6 @@ class CliInterfaceSpecTest(unittest.TestCase):
 
     def _absent_emit_flags(self) -> set[str]:
         return set(self.spec["subcommands"]["artifact_emit_contract"].get("absent_flags", []))
-
-    def test_deploy_preview_emit_contract_has_required_flags(self) -> None:
-        invocations = _extract_emit_contract_invocations(self.preview_text)
-        self.assertGreater(
-            len(invocations),
-            0,
-            "deploy-preview/run.sh must contain at least one artifact emit-contract invocation",
-        )
-        required = self._required_emit_flags()
-        for inv in invocations:
-            flags = _flags_in_invocation(inv)
-            missing = required - flags
-            self.assertFalse(
-                missing,
-                f"deploy-preview emit-contract invocation missing required flags {missing}: {inv!r}",
-            )
 
     def test_deploy_artifact_emit_contract_has_required_flags(self) -> None:
         invocations = _extract_emit_contract_invocations(self.artifact_text)
@@ -425,65 +394,6 @@ printf '%s' "$line_count"
         )
 
 
-# ---------------------------------------------------------------------------
-# T-CLI3: deploy-preview positional arg — deploy-dir, not deployment.yml
-# ---------------------------------------------------------------------------
-
-
-class DeployPreviewPositionalArgTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.text = read_script(DEPLOY_PREVIEW_RUN)
-
-    def test_render_second_positional_is_deploy_dir_not_deployment_yml(self) -> None:
-        """
-        The CLI requires: render <fragment-id> <deploy-dir>
-        The deploy-dir is passed as-is; the CLI appends /deployment.yml internally.
-        Callers must NOT pass '${deploy_dir}/deployment.yml' as the second positional.
-        """
-        invocations = _extract_render_fragment_invocations(self.text)
-        self.assertGreater(len(invocations), 0, "No render fragment invocations found")
-        for inv in invocations:
-            self.assertNotIn(
-                "deployment.yml",
-                inv,
-                f"deploy-preview render invocation passes deployment.yml as positional "
-                f"(should pass the deploy-dir only): {inv!r}",
-            )
-
-    def test_render_uses_context_and_context_path_flags(self) -> None:
-        """
-        The preview pulls the context package via oras and passes it to render
-        with --context <digest-ref> + --context-path <pulled-file> so the
-        recorded ref stays the digest-pinned one. Service repos never hold the
-        context file, so --context-dir must not be used (it records a
-        local:// ref instead of the digest-pinned one).
-        """
-        invocations = _extract_render_fragment_invocations(self.text)
-        for inv in invocations:
-            flags = _flags_in_invocation(inv)
-            self.assertIn(
-                "--context",
-                flags,
-                f"deploy-preview render invocation missing --context flag: {inv!r}",
-            )
-            self.assertIn(
-                "--context-path",
-                flags,
-                f"deploy-preview render invocation missing --context-path flag: {inv!r}",
-            )
-            self.assertNotIn(
-                "--context-dir",
-                flags,
-                f"deploy-preview render must not use --context-dir (loses the digest ref): {inv!r}",
-            )
-
-
-# ---------------------------------------------------------------------------
-# T-CLI4: deploy-artifact positional arg — deploy-dir, not deployment.yml
-# ---------------------------------------------------------------------------
-
-
 class DeployArtifactPositionalArgTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -520,102 +430,6 @@ class DeployArtifactPositionalArgTest(unittest.TestCase):
             )
 
 
-# ---------------------------------------------------------------------------
-# T-CLI5: Silent || true removal — render/emit-contract failures must be captured
-# ---------------------------------------------------------------------------
-
-
-class SilentFailureRemovalTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.preview_text = read_script(DEPLOY_PREVIEW_RUN)
-
-    def _render_fragment_lines_with_or_true(self, text: str) -> list[str]:
-        """
-        Return lines that are PART OF a render-fragment invocation AND also
-        have an unconditional `|| true` appended (the silent-failure pattern).
-        """
-        # Join continuations so each invocation is one logical line
-        joined = text.replace("\\\n", " ")
-        bad = []
-        for line in joined.splitlines():
-            stripped = line.strip()
-            if re.search(r"deploy-config-schema\s+render\s+\S+-fragment", stripped):
-                if re.search(r"\|\|\s*true\s*$", stripped):
-                    bad.append(stripped)
-        return bad
-
-    def _emit_contract_lines_with_or_true(self, text: str) -> list[str]:
-        joined = text.replace("\\\n", " ")
-        bad = []
-        for line in joined.splitlines():
-            stripped = line.strip()
-            if "artifact emit-contract" in stripped and "deploy-config-schema" in stripped:
-                if re.search(r"\|\|\s*true\s*$", stripped):
-                    bad.append(stripped)
-        return bad
-
-    def test_deploy_preview_render_not_silently_suppressed(self) -> None:
-        """
-        render invocations must NOT use unconditional `|| true`.
-        The fixed script captures exit status and surfaces it in the scorecard.
-        """
-        bad = self._render_fragment_lines_with_or_true(self.preview_text)
-        self.assertFalse(
-            bad,
-            f"deploy-preview/run.sh silently suppresses render failures with '|| true': {bad}",
-        )
-
-    def test_deploy_preview_emit_contract_not_silently_suppressed(self) -> None:
-        """
-        artifact emit-contract must NOT use unconditional `|| true`.
-        The fixed script captures exit status and exits nonzero when rendering is impossible.
-        """
-        bad = self._emit_contract_lines_with_or_true(self.preview_text)
-        self.assertFalse(
-            bad,
-            f"deploy-preview/run.sh silently suppresses emit-contract failure with '|| true': {bad}",
-        )
-
-    def test_deploy_preview_captures_render_exit_status(self) -> None:
-        """
-        The script must track render exit status (render_exit or similar variable).
-        """
-        self.assertIn(
-            "render_exit",
-            self.preview_text,
-            "deploy-preview/run.sh must capture render exit status in a variable",
-        )
-
-    def test_deploy_preview_captures_emit_exit_status(self) -> None:
-        """
-        The script must track emit-contract exit status.
-        """
-        self.assertIn(
-            "emit_exit",
-            self.preview_text,
-            "deploy-preview/run.sh must capture emit-contract exit status in a variable",
-        )
-
-    def test_deploy_preview_exits_nonzero_on_emit_failure(self) -> None:
-        """
-        When emit-contract fails the action must exit nonzero (E_EMIT_CONTRACT_FAILED).
-        """
-        self.assertIn(
-            "E_EMIT_CONTRACT_FAILED",
-            self.preview_text,
-            "deploy-preview/run.sh must exit nonzero with E_EMIT_CONTRACT_FAILED when rendering is impossible",
-        )
-
-
-# ---------------------------------------------------------------------------
-# T-CLI6: Context package handling — oras pull + pulled-layout discovery
-# ---------------------------------------------------------------------------
-
-
-DEPLOY_PREVIEW_ACTION = ROOT / "actions/deploy-preview/action.yml"
-
-
 class ContextPackagePullTest(unittest.TestCase):
     """
     Service repos never hold the cluster context; the ACTION fetches it by
@@ -644,13 +458,6 @@ class ContextPackagePullTest(unittest.TestCase):
             "deploy-preview/run.sh must fail loud when the oras pull fails",
         )
 
-    def test_deploy_preview_fails_loud_when_context_file_missing(self) -> None:
-        self.assertIn(
-            "E_CONTEXT_FILE_MISSING",
-            self.preview_text,
-            "deploy-preview/run.sh must fail loud when cluster-context-public.yml is absent from the pulled tree",
-        )
-
     def test_deploy_artifact_fails_loud_when_context_file_missing(self) -> None:
         self.assertIn(
             "E_CONTEXT_FILE_MISSING",
@@ -676,10 +483,10 @@ class ContextPackagePullTest(unittest.TestCase):
             )
 
     def test_scripts_define_discovery_helper(self) -> None:
-        for name, text in (
-            ("deploy-preview", self.preview_text),
-            ("deploy-artifact", self.artifact_text),
-        ):
+        # deploy-preview delegates context discovery to tools/deploy-check,
+        # whose findClusterContext has its own unit tests; deploy-artifact is
+        # still bash and still needs the helper.
+        for name, text in (("deploy-artifact", self.artifact_text),):
             self.assertIn(
                 "find_cluster_context()",
                 text,
@@ -735,7 +542,7 @@ class FindClusterContextHelperTest(unittest.TestCase):
 
     def test_sourcing_run_sh_does_not_execute_main(self) -> None:
         """The BASH_SOURCE guard must prevent main from running when sourced."""
-        for script in (DEPLOY_PREVIEW_RUN, DEPLOY_ARTIFACT_RUN):
+        for script in (DEPLOY_ARTIFACT_RUN,):
             result = subprocess.run(
                 ["bash", "-c", f'source "{script}" && echo SOURCED_OK'],
                 check=False,
@@ -755,7 +562,7 @@ class FindClusterContextHelperTest(unittest.TestCase):
 
     def test_finds_file_under_context_public(self) -> None:
         """The published layout carries the file under context/public/."""
-        for script in (DEPLOY_PREVIEW_RUN, DEPLOY_ARTIFACT_RUN):
+        for script in (DEPLOY_ARTIFACT_RUN,):
             result = self._run_helper(script, ["context/public/cluster-context-public.yml"])
             self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
             self.assertTrue(
@@ -765,7 +572,7 @@ class FindClusterContextHelperTest(unittest.TestCase):
 
     def test_prefers_context_public_over_other_matches(self) -> None:
         """When multiple matches exist, the context/public/ one wins."""
-        for script in (DEPLOY_PREVIEW_RUN, DEPLOY_ARTIFACT_RUN):
+        for script in (DEPLOY_ARTIFACT_RUN,):
             result = self._run_helper(
                 script,
                 [
@@ -783,7 +590,7 @@ class FindClusterContextHelperTest(unittest.TestCase):
 
     def test_falls_back_to_any_match_when_no_context_public(self) -> None:
         """A root-level or differently nested file is still found."""
-        for script in (DEPLOY_PREVIEW_RUN, DEPLOY_ARTIFACT_RUN):
+        for script in (DEPLOY_ARTIFACT_RUN,):
             result = self._run_helper(script, ["cluster-context-public.yml"])
             self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
             self.assertTrue(
@@ -793,7 +600,7 @@ class FindClusterContextHelperTest(unittest.TestCase):
 
     def test_returns_nonzero_when_absent(self) -> None:
         """No match anywhere in the tree -> nonzero so callers can fail loud."""
-        for script in (DEPLOY_PREVIEW_RUN, DEPLOY_ARTIFACT_RUN):
+        for script in (DEPLOY_ARTIFACT_RUN,):
             result = self._run_helper(script, ["context/public/other-file.yml"])
             self.assertNotEqual(
                 result.returncode,
