@@ -25,6 +25,7 @@ jobs:
   actionlint:
     name: Actionlint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -42,6 +43,7 @@ jobs:
   yaml-validity:
     name: YAML Validity
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -80,6 +82,7 @@ jobs:
   python-tests:
     name: Python Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -124,6 +127,7 @@ jobs:
     if: always()
     needs: [actionlint, yaml-validity, python-tests, node-tests]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Verify all gating jobs succeeded
         uses: re-actors/alls-green@release/v1
