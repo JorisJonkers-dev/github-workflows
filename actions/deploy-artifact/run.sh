@@ -2,11 +2,15 @@
 # actions/deploy-artifact/run.sh
 # Render deployment fragments for a service and emit the artifact contract.
 # All inputs arrive via environment variables set by action.yml.
+#
+# The render loop, the forbidden-kind guard and the contract emission used to be
+# spelled out here in bash, duplicating what actions/deploy-preview did and what
+# every service repository carried as platform/render-local.sh. They now come
+# from tools/deploy-check, so the artifact published on a tag and the preview
+# shown on a pull request are produced by the same code. What remains here is
+# what is specific to publishing: provenance verification, the image-lock guard,
+# pulling the context, and exporting the render hash.
 set -euo pipefail
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 fail() {
   printf '::error::%s\n' "$*" >&2
@@ -15,28 +19,6 @@ fail() {
 
 warn() {
   printf '::warning::%s\n' "$*" >&2
-}
-
-# find_cluster_context <root>: locate cluster-context-public.yml inside a
-# pulled context package tree. The published artifact carries it under
-# context/public/, but the layout is discovered rather than hardcoded so a
-# layout change fails loud in one place. Prefers a context/public/ match,
-# falls back to the first match anywhere in the tree. Prints the path;
-# returns 1 if no match exists.
-find_cluster_context() {
-  local root="$1"
-  local matches
-  matches=$(find "$root" -type f -name 'cluster-context-public.yml' 2>/dev/null | sort || true)
-  if [[ -z "$matches" ]]; then
-    return 1
-  fi
-  local preferred
-  preferred=$(printf '%s\n' "$matches" | grep '/context/public/' | head -1 || true)
-  if [[ -n "$preferred" ]]; then
-    printf '%s' "$preferred"
-  else
-    printf '%s' "$(printf '%s\n' "$matches" | head -1)"
-  fi
 }
 
 emit_gate_summary() {
@@ -75,17 +57,6 @@ require_digest_ref() {
   fi
 }
 
-reject_secret_kind() {
-  local dir="$1"
-  local found_files
-  found_files=$(grep -rlE '^kind:[[:space:]]*Secret[[:space:]]*$' "$dir" 2>/dev/null | tr '\n' ' ' || true)
-  if [[ -n "$found_files" ]]; then
-    emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
-      "forbidden-kind-secret" "none"
-    fail "E_FORBIDDEN_KIND: kind=Secret found in rendered manifests: $found_files"
-  fi
-}
-
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -98,40 +69,37 @@ main() {
   local context_ref="${CONTEXT_REF:?CONTEXT_REF is required}"
   local environments="${ENVIRONMENTS:-production}"
   local apply_bundle="${APPLY_BUNDLE:-false}"
+  local gw_root="${GW_ROOT:?GW_ROOT is required}"
+  local tool_dir="${gw_root}/tools/deploy-check"
 
   # (1) Require digest-pinned context ref — fail early
   require_digest_ref "$context_ref"
 
-  # (2) Install exact schema package (pinned version)
+  # (2) Install the checker's dependencies from its committed lockfile. The tool
+  # runs from this checkout rather than the registry, so a publish failure
+  # cannot break publishing and the code matches the pinned workflow SHA.
+  ( cd "$tool_dir" && npm ci --no-audit --no-fund >&2 ) \
+    || fail "E_DEPLOY_CHECK_DEPS_FAILED: npm ci failed in ${tool_dir}"
+
+  # (3) Provenance verification. deploy-check installs the pinned toolkit
+  # itself, so audit the same version here and record the outcome in the
+  # contract rather than inferring it.
   local install_root="${RUNNER_TEMP:-/tmp}/deploy-artifact-schema-cli"
   local npmrc="${install_root}/.npmrc"
-  rm -rf "$install_root"
-  mkdir -p "$install_root"
+  rm -rf "$install_root"; mkdir -p "$install_root"
   {
     printf '%s\n' '@jorisjonkers-dev:registry=https://npm.pkg.github.com'
     if [[ -n "${NODE_AUTH_TOKEN:-}" ]]; then
       printf '%s\n' "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}"
     fi
   } > "$npmrc"
-
-  (
-    cd "$install_root"
-    npm init -y >/dev/null
-    npm install \
-      --userconfig "$npmrc" \
-      --no-audit \
-      --no-fund \
-      --save-exact \
-      "@jorisjonkers-dev/deploy-config-schema@${schema_version}" >&2
-  )
-  export PATH="${install_root}/node_modules/.bin:${PATH}"
-
-  # Verify installed version matches exactly
+  ( cd "$install_root" && npm init -y >/dev/null && npm install --userconfig "$npmrc" \
+      --no-audit --no-fund --save-exact "@jorisjonkers-dev/deploy-config-schema@${schema_version}" >&2 ) \
+    || fail "E_TOOLKIT_INSTALL_FAILED: @jorisjonkers-dev/deploy-config-schema@${schema_version}"
   local installed
-  installed=$(node -e "const d=require('fs').readFileSync(process.argv[1],'utf8');console.log(JSON.parse(d).version)" "${install_root}/node_modules/@jorisjonkers-dev/deploy-config-schema/package.json" 2>/dev/null || echo "")
+  installed=$(node -e "console.log(require('${install_root}/node_modules/@jorisjonkers-dev/deploy-config-schema/package.json').version)" 2>/dev/null || echo "")
   if [[ "$installed" != "$schema_version" ]]; then
-    emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
-      "schema-version-mismatch" "none"
+    emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" "schema-version-mismatch" "none"
     fail "E_SCHEMA_VERSION_MISMATCH: installed=${installed} declared=${schema_version}"
   fi
 
@@ -149,7 +117,7 @@ main() {
     --scope @jorisjonkers-dev 2>&1) || {
     if echo "$npm_audit_result" | grep -qE "found no dependencies to audit that were installed from a supported registry|found no installed dependencies to audit"; then
       warn "npm audit signatures skipped: package is from a private registry not supported by npm audit signatures"
-      provenance_verified=false
+      provenance_verified=not_applicable
     else
       provenance_verified=false
       emit_gate_summary "npm-signatures" "npm Signatures" "fail" \
@@ -162,162 +130,55 @@ main() {
 
   # (4) Guard: image lock must exist
   if [[ ! -f "$image_lock_path" ]]; then
-    emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
-      "image-lock-missing" "none"
+    emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" "image-lock-missing" "none"
     fail "E_IMAGE_LOCK_MISSING: expected at ${image_lock_path} (was image-lock-artifact set?)"
   fi
 
-  # (5) Pull context package via oras (once; reused across all envs and subcommands)
-  mkdir -p context-pkg
-  if ! oras pull "$context_ref" --output context-pkg/ 2>&1; then
-    emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
-      "context-pull-failed" "none"
+  # (5) Pull the context package once. Service repos never hold the cluster
+  # context; it is fetched by digest.
+  local context_root="context-pkg"
+  rm -rf "$context_root"; mkdir -p "$context_root"
+  if ! oras pull "$context_ref" --output "$context_root" 2>&1; then
+    emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" "context-pull-failed" "none"
     fail "E_CONTEXT_PULL_FAILED: oras pull ${context_ref} failed"
   fi
 
-  # (6) Locate cluster-context-public.yml in the pulled tree (usually under
-  # context/public/) and validate it; fail loud if it is absent.
-  # NOTE: `deploy-config-schema validate` must NOT be called on this file —
-  # it has kind=ClusterContext (no deploy-config schema applies; the CLI falls
-  # back to the deploy-config schema and produces spurious E_SCHEMA errors).
-  # The context is validated by homelab-inventory before being published via
-  # scripts/validate-contexts.mjs which uses the correct validateClusterContext
-  # programmatic API. Presence-check only here.
-  local context_file
-  if ! context_file=$(find_cluster_context context-pkg); then
-    emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
-      "context-file-missing" "none"
-    fail "E_CONTEXT_FILE_MISSING: cluster-context-public.yml not found in pulled context package ${context_ref}; pulled files: $(find context-pkg -type f 2>/dev/null | tr '\n' ' ')"
-  fi
-
-  # (7) Process environments: CRLF strip, trim, validate name, dedupe
-  local envs_raw
-  envs_raw="$(printf '%s' "$environments" | sed 's/\r$//')"
-  IFS=',' read -ra raw_envs <<< "$envs_raw"
-  local -a envs=()
-  declare -A seen_envs=()
-  for env in "${raw_envs[@]}"; do
-    env="$(printf '%s' "$env" | xargs 2>/dev/null || printf '%s' "$env")"
-    [[ -z "$env" ]] && continue
-    if [[ ! "$env" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
-      emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
-        "invalid-env-name" "none"
-      fail "E_INVALID_ENV_NAME: '${env}'"
-    fi
-    if [[ "${seen_envs[$env]+set}" ]]; then
-      warn "duplicate env '${env}' skipped"
-      continue
-    fi
-    seen_envs["$env"]=1
-    envs+=("$env")
-  done
-  if [[ ${#envs[@]} -eq 0 ]]; then
-    emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
-      "no-valid-environments" "none"
-    fail "E_NO_VALID_ENVIRONMENTS"
-  fi
-
-  # (8) Render 5 fragments per env + emit kustomization health.
-  # CLI: render <fragment-id> <deploy-dir> --env <env> --images <lock>
-  #      --context <ref@sha256:..> --context-path <file> [--output <path>]
-  # The context package was pulled once in step (5) and the context file
-  # discovered in step (6); pass via --context <digest-ref> --context-path.
-  for env in "${envs[@]}"; do
-    mkdir -p "out/manifests/${env}" "out/metadata/${env}"
-    for fragment in \
-      kubernetes-workload-fragment \
-      traefik-route-fragment \
-      gatus-endpoint-fragment \
-      edge-catalog-fragment \
-      image-metadata-fragment
-    do
-      deploy-config-schema render "$fragment" "$deploy_dir" \
-        --env "$env" \
-        --context "$context_ref" \
-        --context-path "$context_file" \
-        --images "$image_lock_path" \
-        --output "out/manifests/${env}/${fragment}.yaml"
-    done
-
-    deploy-config-schema artifact emit-kustomization-health \
-      --deployment "$deploy_dir/deployment.yml" \
-      --env "$env" \
-      --image-digests "$image_lock_path" \
-      --out "out/metadata/${env}/kustomization-health.yml"
-
-    # A fragment is a schema document that wraps its payload, which kustomize and
-    # Flux both reject, so the artifact cannot be applied as published. Lifting the
-    # workload objects into out/apply/<env>/ with a kustomization.yaml is what lets
-    # fleet-infra consume this artifact through an OCIRepository instead of having
-    # this repository push files into its tree. The remaining fragments carry
-    # intent that aggregates across services, so the command reports them as
-    # skipped rather than emitting them.
-    if [[ "$apply_bundle" == "true" ]]; then
-      deploy-config-schema artifact emit-apply-bundle \
-        --manifests "out/manifests/${env}" \
-        --out "out/apply/${env}"
-    fi
-  done
-
-  # NOTE: steps 9 (kubeconform) and 10 (kustomize build dry-run) are intentionally
-  # absent. Fragment output files (kubernetes-workload-fragment.yaml, etc.) are
-  # schema documents wrapping K8s manifests (e.g. { kind: "KubernetesWorkloadFragment",
-  # manifests: [...] }), not bare Kubernetes YAML. Kubeconform and kustomize both
-  # expect standard apiVersion/kind at the top level and will always fail on this
-  # format. Render correctness is guaranteed by the schema CLI in step (8).
-
-  # (9) Reject kind: Secret in rendered output
-  reject_secret_kind "out/manifests/"
-
-  # (10) Raw manifests cannot be validated: deploy-config-schema exposes only
-  # emit-apply-bundle, emit-contract and emit-kustomization-health under
-  # `artifact`. There is no validate-raw-manifests subcommand in any published
-  # version, so the call below always exited E_USAGE and was reported as
-  # a forbidden-kinds violation -- sending anyone who enabled raw manifests
-  # looking for a policy breach that had never been evaluated. Refuse the
-  # input explicitly instead, and say why.
-  local has_raw_manifests_dir="${deploy_dir}/raw-manifests"
-  if [[ -d "$has_raw_manifests_dir" ]]; then
-    emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
-      "raw-manifests-unsupported" "none"
-    fail "E_RAW_MANIFESTS_UNSUPPORTED: ${has_raw_manifests_dir} exists, and the toolkit exposes no subcommand that can validate it: the published artifact commands are emit-apply-bundle, emit-contract and emit-kustomization-health, so the forbidden-kinds guard cannot run. Remove the directory, or implement the guard in the toolkit before shipping raw manifests."
-  fi
-
-  # (11) Emit artifact contract (includes SC-9 render hash).
-  # CLI: artifact emit-contract
-  #   --artifact-name <name>
-  #   --environments <e1,e2>
-  #   --images <images.lock.json>
-  #   --context-ref <ref@sha256:..>
-  #   --deployment <deployment.yml>
-  #   --context <cluster-context.yml>
-  #   --out <path>
-  #   [--provenance-verified true|false]
-  #   [--output-root <dir>]
-  local envs_joined
-  envs_joined="$(printf '%s,' "${envs[@]}" | sed 's/,$//')"
-  deploy-config-schema artifact emit-contract \
-    --artifact-name "$artifact_name" \
-    --environments "$envs_joined" \
-    --images "$image_lock_path" \
+  # (6) Render, guard and emit the contract. deploy-check locates
+  # cluster-context-public.yml inside the pulled package, validates the
+  # environment list, refuses a raw-manifests directory it cannot guard, and
+  # rejects kind: Secret in the rendered output.
+  local check_exit=0
+  node "${tool_dir}/bin/deploy-check.js" preview \
+    --deploy-dir "$deploy_dir" \
+    --bin "${install_root}/node_modules/.bin/deploy-config-schema" \
     --context-ref "$context_ref" \
-    --deployment "$deploy_dir/deployment.yml" \
-    --context "$context_file" \
+    --context-dir "$context_root" \
+    --images "$image_lock_path" \
+    --environments "$environments" \
+    --artifact-name "$artifact_name" \
+    --apply-bundle "$apply_bundle" \
     --provenance-verified "$provenance_verified" \
-    --output-root out \
-    --out out/artifact-contract.yaml
+    --out out \
+    || check_exit=$?
 
-  # (12) Export render-hash to GITHUB_OUTPUT (correction #8: also declared in outputs block)
-  local render_hash
-  render_hash=$(yq '.spec.renderHash' out/artifact-contract.yaml)
-  if [[ -z "$render_hash" || "$render_hash" == "null" ]]; then
-    fail "E_RENDER_HASH_MISSING: yq could not extract .spec.renderHash from out/artifact-contract.yaml"
+  if [[ "$check_exit" -ne 0 ]]; then
+    emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" "deploy-check-failed" "none"
+    fail "E_DEPLOY_CHECK_FAILED: deploy-check exited ${check_exit}"
+  fi
+
+  # (7) Export render-hash to GITHUB_OUTPUT
+  local render_hash=""
+  if [[ -f out/render-hash.txt ]]; then
+    render_hash=$(tr -d '[:space:]' < out/render-hash.txt)
+  fi
+  if [[ -z "$render_hash" ]]; then
+    fail "E_RENDER_HASH_MISSING: deploy-check wrote no render hash to out/render-hash.txt"
   fi
   printf 'render-hash=%s\n' "$render_hash" >> "${GITHUB_OUTPUT:-/dev/null}"
 }
 
-# Allow sourcing for unit tests of the helpers (find_cluster_context, ...);
-# execute main only when invoked directly.
+# Allow sourcing for unit tests of the helpers; execute main only when invoked
+# directly.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   main "$@"
 fi

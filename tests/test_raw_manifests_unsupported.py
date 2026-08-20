@@ -2,8 +2,12 @@
 
 `artifact` publishes only emit-apply-bundle, emit-contract and
 emit-kustomization-health. deploy-artifact called `artifact
-validate-raw-manifests`, which exits E_USAGE, and reported the result as
-E_RAW_MANIFESTS_VIOLATIONS -- naming a policy breach that had not occurred.
+validate-raw-manifests`, which exits E_USAGE, and reported the result as a
+forbidden-kind violation -- naming a policy breach that had not occurred.
+
+The refusal itself now lives in tools/deploy-check, keyed on a workload
+declaring rawManifests rather than on a directory existing, so what remains
+here is the invariant that no action invokes an unpublished subcommand.
 """
 import re
 import unittest
@@ -40,20 +44,6 @@ class NoUnpublishedSubcommands(unittest.TestCase):
             [],
             "these calls exit E_USAGE because the subcommand is not published: "
             + "; ".join(offenders),
-        )
-
-    def test_raw_manifests_failure_names_the_real_cause(self):
-        text = (ACTIONS / "deploy-artifact" / "run.sh").read_text()
-        self.assertIn("raw-manifests", text, "the raw-manifests branch disappeared entirely")
-        self.assertIn(
-            "E_RAW_MANIFESTS_UNSUPPORTED",
-            text,
-            "a raw-manifests directory must fail as unsupported, not as a violation",
-        )
-        self.assertNotIn(
-            "E_RAW_MANIFESTS_VIOLATIONS",
-            text,
-            "reporting a violation implies a policy breach that was never evaluated",
         )
 
 
