@@ -199,3 +199,54 @@ test('the markdown table renders one row per check plus a reason column', () => 
   for (const c of CHECKS) assert.match(md, new RegExp(c))
   assert.match(md, /\| Detail \|/)
 })
+
+// A queue consumer has no port to probe. Requiring a path from every workload
+// made the check unsatisfiable for knowledge-ingest-worker, which has no ports
+// and no probes in its cluster manifest.
+test('a workload may be exempted with health.mandatory false', () => {
+  const res = computeScorecard(
+    deployment([workload(), workload({ name: 'worker', health: { mandatory: false } })]),
+    contract(), { renderedManifests: rendered() },
+  )
+  assert.equal(statusOf(res, 'health_declared'), 'pass')
+  assert.match(res.checks.health_declared.reason, /worker/)
+  assert.match(res.checks.health_declared.reason, /mandatory/)
+})
+
+test('an exemption is reported even when every workload is exempt', () => {
+  const res = computeScorecard(
+    deployment([workload({ name: 'w1', health: { mandatory: false } })]),
+    contract(), { renderedManifests: rendered() },
+  )
+  assert.equal(statusOf(res, 'health_declared'), 'pass')
+  assert.match(res.checks.health_declared.reason, /w1/)
+})
+
+test('omitting health entirely is still a failure, and the message names the escape hatch', () => {
+  const res = computeScorecard(
+    deployment([workload({ name: 'worker', health: undefined })]),
+    contract(), { renderedManifests: rendered() },
+  )
+  assert.equal(statusOf(res, 'health_declared'), 'fail')
+  assert.match(res.checks.health_declared.reason, /worker/)
+  assert.match(res.checks.health_declared.reason, /mandatory: false/)
+})
+
+test('mandatory false does not excuse a workload that claims a path', () => {
+  // A declared path is a promise the probe works; mandatory:false alongside it
+  // is contradictory, so the path wins and the workload is not exempt.
+  const res = computeScorecard(
+    deployment([workload({ name: 'w', health: { mandatory: false, path: '/health', port: 8080 } })]),
+    contract(), { renderedManifests: rendered() },
+  )
+  assert.equal(statusOf(res, 'health_declared'), 'pass')
+  assert.equal(res.checks.health_declared.reason, undefined)
+})
+
+test('a partial health block without a path is not an exemption', () => {
+  const res = computeScorecard(
+    deployment([workload({ name: 'w', health: { port: 8080 } })]),
+    contract(), { renderedManifests: rendered() },
+  )
+  assert.equal(statusOf(res, 'health_declared'), 'fail')
+})
