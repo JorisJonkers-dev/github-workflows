@@ -93,11 +93,35 @@ const rules = {
   // acknowledged workload on behalf of all of them for rollback retention;
   // health was already per-workload. Verified a no-op against every current
   // deployment.yml before tightening.
+  // A queue consumer has no HTTP surface to probe, so demanding a health path
+  // from every workload cannot be satisfied. `health: { mandatory: false }` is
+  // an explicit, reviewable opt-out: the workload still has to say something
+  // about its health, and the exemption shows up in the reason rather than
+  // disappearing. Omitting `health` entirely is still a failure -- silence is
+  // not a decision.
   health_declared(deployment) {
     const workloads = workloadsOf(deployment)
     if (workloads.length === 0) return na('deployment declares no workloads')
-    const missing = workloads.filter((w) => !w?.health?.path).map((w) => w?.name ?? '<unnamed>')
-    return missing.length === 0 ? pass() : fail(`no health.path on ${missing.join(', ')}`)
+    const exempt = []
+    const missing = []
+    for (const w of workloads) {
+      const name = w?.name ?? '<unnamed>'
+      const health = w?.health
+      if (health && health.mandatory === false && !health.path) {
+        exempt.push(name)
+      } else if (!health?.path) {
+        missing.push(name)
+      }
+    }
+    if (missing.length > 0) {
+      return fail(
+        `no health.path on ${missing.join(', ')}` +
+          ' (declare health.mandatory: false to exempt a workload with no HTTP surface)',
+      )
+    }
+    return exempt.length > 0
+      ? { status: 'pass', reason: `exempt by health.mandatory: false: ${exempt.join(', ')}` }
+      : pass()
   },
 
   route_owner_authmode_declared(deployment) {
