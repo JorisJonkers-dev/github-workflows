@@ -1,0 +1,13 @@
+name: Diag Probe
+description: Reports whether sibling repository files are present when an action is referenced by full path.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        printf 'action_path=[%s]\n' "${{ github.action_path }}"
+        root="${{ github.action_path }}/../.."
+        printf 'repo_root_listing=[%s]\n' "$(ls "$root" 2>/dev/null | tr '\n' ' ')"
+        printf 'tools_deploy_check_present=[%s]\n' "$([ -d "$root/tools/deploy-check" ] && echo yes || echo no)"
+        printf 'deploy_check_bin_present=[%s]\n' "$([ -f "$root/tools/deploy-check/bin/deploy-check.js" ] && echo yes || echo no)"
+        printf 'lockfile_present=[%s]\n' "$([ -f "$root/tools/deploy-check/package-lock.json" ] && echo yes || echo no)"

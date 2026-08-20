@@ -19,3 +19,6 @@ jobs:
           printf 'sha=[%s]\n'              "${{ github.sha }}"
           printf 'ref=[%s]\n'              "${{ github.ref }}"
           printf 'repository=[%s]\n'       "${{ github.repository }}"
+
+      - name: Probe action referenced by full path at a literal ref
+        uses: JorisJonkers-dev/github-workflows/actions/_diag-probe@diag/workflow-ref-contexts
