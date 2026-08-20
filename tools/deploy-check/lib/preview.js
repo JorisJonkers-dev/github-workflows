@@ -68,14 +68,23 @@ export function runPreview(opts) {
     throw new ToolkitError(`E_DEPLOYMENT_MISSING: ${deploymentYml} not found`)
   }
 
+  // --context-dir makes the toolkit look for cluster-context-public.yml
+  // directly inside that directory; it does not search. A pulled context
+  // package nests the file under context/public/, so passing the package root
+  // as --context-dir fails with ENOENT. Resolve to the concrete file and pass
+  // it as --context-path instead, which works for either layout.
   let contextPath = opts.contextPath
-  if (!contextPath && opts.contextDir) {
-    contextPath = findClusterContext(path.isAbsolute(opts.contextDir) ? opts.contextDir : path.join(cwd ?? process.cwd(), opts.contextDir))
+  if (!contextPath) {
+    const root = opts.contextDir
+      ? (path.isAbsolute(opts.contextDir) ? opts.contextDir : path.join(cwd ?? process.cwd(), opts.contextDir))
+      : null
+    if (!root) throw new ToolkitError('supply contextPath, or contextDir to search')
+    contextPath = findClusterContext(root)
     if (!contextPath) {
       throw new ToolkitError(`E_CONTEXT_FILE_MISSING: cluster-context-public.yml not found under ${opts.contextDir}`)
     }
   }
-  const context = { contextDir: opts.contextDir, contextRef, contextPath }
+  const context = { contextRef, contextPath }
 
   // A stale tree would let a previous run's manifests satisfy this run's
   // checks, which is the failure mode the whole scorecard exists to catch.

@@ -168,3 +168,27 @@ test('a context directory with no cluster context fails with a named error', () 
   mkdirSync(path.join(f.root, 'empty'), { recursive: true })
   assert.throws(() => invoke(f, { contextDir: 'empty' }), /E_CONTEXT_FILE_MISSING/)
 })
+
+// A pulled context package nests cluster-context-public.yml under
+// context/public/. --context-dir makes the toolkit look for the file directly
+// inside the directory it is given, without searching, so passing the package
+// root fails with ENOENT once the layout is nested -- which is exactly what CI
+// pulls. Every render must therefore receive a --context-path that exists.
+test('the toolkit is given a context file that exists, not a package root', () => {
+  const f = fixture()
+  invoke(f)
+  for (const a of calls(f).filter((c) => c[0] === 'render')) {
+    const i = a.indexOf('--context-path')
+    assert.notEqual(i, -1, 'render must pass --context-path')
+    const file = a[i + 1]
+    assert.ok(existsSync(file), `--context-path ${file} does not exist`)
+    assert.match(file, /cluster-context-public\.yml$/)
+    assert.ok(!a.includes('--context-dir'), '--context-dir does not search nested layouts')
+  }
+})
+
+test('a nested context layout resolves to the nested file', () => {
+  const f = fixture()
+  const { contextPath } = invoke(f)
+  assert.match(contextPath, /ctx.context.public.cluster-context-public\.yml$/)
+})
