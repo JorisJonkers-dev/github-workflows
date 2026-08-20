@@ -269,19 +269,18 @@ main() {
   # (9) Reject kind: Secret in rendered output
   reject_secret_kind "out/manifests/"
 
-  # (10) Validate raw manifests (only when raw-manifests enabled in deployment.yml)
+  # (10) Raw manifests cannot be validated: deploy-config-schema exposes only
+  # emit-apply-bundle, emit-contract and emit-kustomization-health under
+  # `artifact`. There is no validate-raw-manifests subcommand in any published
+  # version, so the call below always exited E_USAGE and was reported as
+  # a forbidden-kinds violation -- sending anyone who enabled raw manifests
+  # looking for a policy breach that had never been evaluated. Refuse the
+  # input explicitly instead, and say why.
   local has_raw_manifests_dir="${deploy_dir}/raw-manifests"
   if [[ -d "$has_raw_manifests_dir" ]]; then
-    deploy-config-schema artifact validate-raw-manifests \
-      --deployment "$deploy_dir/deployment.yml" \
-      --root "$deploy_dir/raw-manifests" \
-      --output-root "out/raw-manifests" \
-      --forbidden-kinds Secret,ClusterRole,ClusterRoleBinding,CustomResourceDefinition,Namespace \
-      --out out/raw-manifests-guard.json || {
-      emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
-        "raw-manifests-violations" "none"
-      fail "E_RAW_MANIFESTS_VIOLATIONS"
-    }
+    emit_gate_summary "deploy-artifact" "Deploy Artifact" "fail" \
+      "raw-manifests-unsupported" "none"
+    fail "E_RAW_MANIFESTS_UNSUPPORTED: ${has_raw_manifests_dir} exists, and the toolkit exposes no subcommand that can validate it: the published artifact commands are emit-apply-bundle, emit-contract and emit-kustomization-health, so the forbidden-kinds guard cannot run. Remove the directory, or implement the guard in the toolkit before shipping raw manifests."
   fi
 
   # (11) Emit artifact contract (includes SC-9 render hash).
