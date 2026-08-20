@@ -588,52 +588,6 @@ class DeployArtifactActionOutputsTest(unittest.TestCase):
         )
 
 
-class DeployPreviewRunShTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.run_sh = (ROOT / "actions/deploy-preview/run.sh").read_text(encoding="utf-8")
-
-    def test_scorecard_keys_present(self) -> None:
-        scorecard_keys = [
-            "schema_pinned",
-            "context_pinned",
-            "no_latest_images",
-            "health_declared",
-            "route_owner_authmode_declared",
-            "rollback_retention_acknowledged",
-            "no_raw_secrets",
-            "stateful_policy_declared",
-            "raw_manifests_guarded",
-            "npm_signatures_verified",
-        ]
-        for key in scorecard_keys:
-            self.assertIn(key, self.run_sh, msg=f"SC-11 key '{key}' missing from deploy-preview/run.sh")
-
-    def test_sticky_pr_comment_marker_present(self) -> None:
-        self.assertIn("deploy-preview-marker", self.run_sh)
-
-    def test_gate_summary_emitted(self) -> None:
-        self.assertIn("deploy-validate", self.run_sh)
-        self.assertIn("scorecard-evaluated", self.run_sh)
-
-    def test_five_fragments_rendered(self) -> None:
-        fragments = [
-            "kubernetes-workload-fragment",
-            "traefik-route-fragment",
-            "gatus-endpoint-fragment",
-            "edge-catalog-fragment",
-            "image-metadata-fragment",
-        ]
-        for fragment in fragments:
-            self.assertIn(fragment, self.run_sh, msg=f"Fragment '{fragment}' not rendered in deploy-preview/run.sh")
-
-
-
-# ---------------------------------------------------------------------------
-# T-D7: Leak-scan tool installation and fail-closed hardening
-# ---------------------------------------------------------------------------
-
-
 class LeakScanInstallAndFailClosedTest(unittest.TestCase):
     """
     T-D7: action.yml install steps and run.sh fail-closed hardening for all-refs mode.

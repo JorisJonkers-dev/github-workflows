@@ -1,0 +1,35 @@
+{
+  "name": "@jorisjonkers-dev/deploy-check",
+  "version": "0.0.0",
+  "description": "Shared deployment preview and SC-11 readiness scorecard for deploy-platform service repos.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JorisJonkers-dev/github-workflows.git",
+    "directory": "tools/deploy-check"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "bin": {
+    "deploy-check": "./bin/deploy-check.js"
+  },
+  "exports": {
+    ".": "./lib/index.js"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "yaml": "^2.5.0"
+  }
+}

@@ -32,3 +32,4 @@ scratchpads/
 *scratchpad*.md
 *.scratch.md
 *agent-council*.md
+tools/deploy-check/node_modules/
