@@ -192,3 +192,47 @@ test('a nested context layout resolves to the nested file', () => {
   const { contextPath } = invoke(f)
   assert.match(contextPath, /ctx.context.public.cluster-context-public\.yml$/)
 })
+
+test('the apply bundle can be skipped', () => {
+  const f = fixture()
+  invoke(f, { applyBundle: false })
+  assert.ok(!calls(f).some((a) => a[0] === 'artifact' && a[1] === 'emit-apply-bundle'))
+})
+
+test('the apply bundle is emitted by default', () => {
+  const f = fixture()
+  invoke(f)
+  assert.ok(calls(f).some((a) => a[0] === 'artifact' && a[1] === 'emit-apply-bundle'))
+})
+
+test('a recorded provenance result reaches emit-contract', () => {
+  for (const value of [true, false]) {
+    const f = fixture()
+    invoke(f, { provenanceVerified: value })
+    const call = calls(f).find((a) => a[0] === 'artifact' && a[1] === 'emit-contract')
+    const i = call.indexOf('--provenance-verified')
+    assert.notEqual(i, -1)
+    assert.equal(call[i + 1], String(value))
+  }
+})
+
+// render takes the deploy DIRECTORY as its second positional. Passing
+// deployment.yml there was a real defect in an earlier bash implementation, and
+// the toolkit's error for it is unhelpful.
+test('render receives the deploy directory as its second positional, not deployment.yml', () => {
+  const f = fixture()
+  invoke(f)
+  for (const a of calls(f).filter((c) => c[0] === 'render')) {
+    assert.equal(a[2], 'platform', `second positional was ${a[2]}`)
+    assert.ok(!a.slice(0, 3).some((x) => String(x).endsWith('deployment.yml')))
+  }
+})
+
+// The toolkit resolves the deployment inside the deploy dir itself, so the
+// contract emission is the only place that names the file.
+test('emit-contract names deployment.yml explicitly', () => {
+  const f = fixture()
+  invoke(f)
+  const call = calls(f).find((a) => a[0] === 'artifact' && a[1] === 'emit-contract')
+  assert.match(call[call.indexOf('--deployment') + 1], /deployment\.yml$/)
+})

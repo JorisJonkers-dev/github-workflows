@@ -110,12 +110,15 @@ export function runPreview(opts) {
       })
       // Fragments wrap their payload in a schema document, which kustomize and
       // kubeconform both reject. The apply bundle is the applyable form, and it
-      // ships the kustomization.yaml those tools need.
-      emitApplyBundle(bin, {
-        manifestsDir: path.join(outDir, 'manifests', env),
-        outDir: path.join(outDir, 'apply', env),
-        cwd,
-      })
+      // ships the kustomization.yaml those tools need. Publishing it is opt-out
+      // because only artifacts consumed through an OCIRepository need it.
+      if (opts.applyBundle !== false) {
+        emitApplyBundle(bin, {
+          manifestsDir: path.join(outDir, 'manifests', env),
+          outDir: path.join(outDir, 'apply', env),
+          cwd,
+        })
+      }
     }
   }
 

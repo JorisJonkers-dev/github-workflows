@@ -515,54 +515,6 @@ class LeakPatternsShapeTest(unittest.TestCase):
             )
 
 
-# ---------------------------------------------------------------------------
-# T-D6: Action script content checks
-# ---------------------------------------------------------------------------
-
-
-class DeployArtifactRunShTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.run_sh = DEPLOY_ARTIFACT_RUN.read_text(encoding="utf-8")
-
-    def test_context_ref_digest_requirement(self) -> None:
-        self.assertIn("E_CONTEXT_REF_NOT_PINNED", self.run_sh)
-        self.assertIn("@sha256:", self.run_sh)
-
-    def test_env_crlf_normalization(self) -> None:
-        self.assertIn("sed 's/\\r$//'", self.run_sh)
-
-    def test_env_name_validation_regex(self) -> None:
-        self.assertIn("^[a-z0-9][a-z0-9-]*$", self.run_sh)
-
-    def test_duplicate_env_warning(self) -> None:
-        self.assertIn("duplicate env", self.run_sh)
-        self.assertIn("skipped", self.run_sh)
-
-    def test_no_valid_envs_error(self) -> None:
-        self.assertIn("E_NO_VALID_ENVIRONMENTS", self.run_sh)
-
-    def test_reject_secret_kind(self) -> None:
-        self.assertIn("E_FORBIDDEN_KIND", self.run_sh)
-        # Assert the anchored ERE pattern is used (not an unanchored substring),
-        # mirroring the deploy-preview fix from #62.
-        self.assertIn("^kind:[[:space:]]*Secret[[:space:]]*$", self.run_sh)
-
-    def test_image_lock_missing_guard(self) -> None:
-        self.assertIn("E_IMAGE_LOCK_MISSING", self.run_sh)
-
-    def test_render_hash_exported_to_github_output(self) -> None:
-        self.assertIn("render-hash=", self.run_sh)
-        self.assertIn("GITHUB_OUTPUT", self.run_sh)
-
-    def test_npm_signatures_gate_emitted_before_exit(self) -> None:
-        self.assertIn("npm-signatures", self.run_sh)
-        self.assertIn("npm-audit-signatures-failed", self.run_sh)
-
-    def test_schema_version_mismatch_error(self) -> None:
-        self.assertIn("E_SCHEMA_VERSION_MISMATCH", self.run_sh)
-
-
 class DeployArtifactActionOutputsTest(unittest.TestCase):
     """Correction #8: render-hash must be declared in action.yml outputs block."""
 

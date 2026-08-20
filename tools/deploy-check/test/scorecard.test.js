@@ -161,6 +161,21 @@ test('rawManifests without a guard report explains that no guard exists', () => 
   assert.match(res.checks.raw_manifests_guarded.reason, /validate-raw-manifests/)
 })
 
+// A package from GitHub Packages cannot be audited by npm audit signatures at
+// all. Reporting that as a failed verification would block every publish, so
+// "could not be evaluated" is a third state.
+test('an unauditable registry is not_applicable, not a failure', () => {
+  const res = computeScorecard(deployment(), contract(), { renderedManifests: rendered(), provenanceVerified: 'not_applicable' })
+  assert.equal(statusOf(res, 'npm_signatures_verified'), 'not_applicable')
+  assert.equal(res.overall, 'pass')
+})
+
+test('a genuine verification failure is still a failure', () => {
+  const res = computeScorecard(deployment(), contract(), { renderedManifests: rendered(), provenanceVerified: false })
+  assert.equal(statusOf(res, 'npm_signatures_verified'), 'fail')
+  assert.equal(res.overall, 'fail')
+})
+
 test('npm_signatures_verified is not_applicable unless provenance was evaluated', () => {
   const preview = computeScorecard(deployment(), contract(), { renderedManifests: rendered() })
   assert.equal(statusOf(preview, 'npm_signatures_verified'), 'not_applicable')

@@ -10,6 +10,7 @@ import { runPreview } from '../lib/preview.js'
 import { renderScorecardMarkdown, CHECKS } from '../lib/scorecard.js'
 import { renderPreviewSummary } from '../lib/summary.js'
 import { resolveToolkit } from '../lib/resolve-toolkit.js'
+import { parseEnvironments } from '../lib/environments.js'
 
 const USAGE = `Usage:
   deploy-check preview [options]
@@ -23,9 +24,12 @@ Options:
   --images <file>           images.lock.json (default: <deploy-dir>/images.lock.json)
   --artifact-name <name>    contract artifact name (default: deployment metadata.name)
   --environments <list>     comma-separated (default: production)
+  --apply-bundle <bool>     lift applyable objects into out/apply (default: true)
   --out <dir>               output directory (default: out)
   --bin <path>              use an already-installed deploy-config-schema
-  --provenance-verified     record npm provenance as verified
+  --provenance-verified <true|false|not_applicable>
+                            record the npm provenance result; not_applicable when
+                            the registry does not support audit signatures
   --json                    emit the scorecard as JSON on stdout
   --markdown-out <file>     also write the scorecard markdown to a file
   -h, --help
@@ -51,10 +55,24 @@ function parseArgs(argv) {
       case '--context-path': opts.contextPath = need(a); break
       case '--images': opts.images = need(a); break
       case '--artifact-name': opts.artifactName = need(a); break
-      case '--environments': opts.environments = need(a).split(',').map((s) => s.trim()).filter(Boolean); break
+      case '--environments': opts.environmentsRaw = need(a); break
       case '--out': opts.out = need(a); break
       case '--bin': opts.bin = need(a); break
-      case '--provenance-verified': opts.provenanceVerified = true; break
+      case '--provenance-verified': {
+        // Accepts a value so a caller can record a negative result; a bare
+        // flag still means true.
+        const next = argv[i + 1]
+        if (next === 'true' || next === 'false') { opts.provenanceVerified = next === 'true'; i++ }
+        else if (next === 'not_applicable') { opts.provenanceVerified = 'not_applicable'; i++ }
+        else opts.provenanceVerified = true
+        break
+      }
+      case '--apply-bundle': {
+        const next = argv[i + 1]
+        if (next === 'true' || next === 'false') { opts.applyBundle = next === 'true'; i++ }
+        else opts.applyBundle = true
+        break
+      }
       case '--json': opts.json = true; break
       case '--markdown-out': opts.markdownOut = need(a); break
       case '-h': case '--help': opts.help = true; break
@@ -84,6 +102,16 @@ async function main() {
   if (!opts.contextRef) fail('--context-ref is required (it is recorded in the artifact contract)')
   if (!opts.contextDir && !opts.contextPath) fail('supply --context-dir, or --context-path alongside --context-ref')
   if (!opts.images) opts.images = path.join(opts.deployDir, 'images.lock.json')
+
+  try {
+    const parsed = parseEnvironments(opts.environmentsRaw ?? 'production')
+    opts.environments = parsed.environments
+    for (const dup of parsed.duplicates) {
+      process.stderr.write(`::warning::duplicate environment '${dup}' skipped\n`)
+    }
+  } catch (err) {
+    fail(err.message)
+  }
 
   let bin = opts.bin
   if (!bin) {
@@ -115,6 +143,7 @@ async function main() {
       artifactName: opts.artifactName,
       outDir: opts.out,
       provenanceVerified: opts.provenanceVerified,
+      applyBundle: opts.applyBundle,
     })
   } catch (err) {
     fail(err.stderr ? `${err.message}\n${err.stderr}` : err.message)
@@ -143,7 +172,10 @@ async function main() {
     writeFileSync(opts.markdownOut, `${summary}\n`)
   }
 
-  if (opts.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+  const renderHash = outcome.contract?.spec?.renderHash
+  if (renderHash) writeFileSync(path.join(opts.out, 'render-hash.txt'), `${renderHash}\n`)
+
+  if (opts.json) process.stdout.write(`${JSON.stringify({ ...result, renderHash }, null, 2)}\n`)
   else process.stdout.write(`${markdown}\n`)
 
   for (const f of renderFailures) {

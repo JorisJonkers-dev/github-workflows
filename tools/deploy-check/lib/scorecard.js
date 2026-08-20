@@ -191,11 +191,17 @@ const rules = {
     return violations.length === 0 ? pass() : fail(`${violations.length} forbidden-kind violation(s)`)
   },
 
+  // Three states, not two. npm audit signatures only works for packages from
+  // npmjs.com; a package installed from GitHub Packages reports "found no
+  // dependencies to audit that were installed from a supported registry",
+  // which is an expected skip rather than a failed verification. Collapsing
+  // that into fail would block every publish. The caller decides which case it
+  // is and says so; a genuine audit failure is fatal before it reaches here.
   npm_signatures_verified(_deployment, _contract, evidence) {
-    if (evidence?.provenanceVerified === undefined) {
-      return na('provenance is only verified when publishing an artifact')
-    }
-    return evidence.provenanceVerified ? pass() : fail('npm audit signatures did not verify the package')
+    const v = evidence?.provenanceVerified
+    if (v === undefined) return na('provenance is only evaluated when publishing an artifact')
+    if (v === 'not_applicable') return na('the registry does not support npm audit signatures')
+    return v ? pass() : fail('npm audit signatures did not verify the package')
   },
 }
 
