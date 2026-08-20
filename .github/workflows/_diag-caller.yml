@@ -3,7 +3,9 @@
 # service repositories.
 name: Diag Caller
 on:
-  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - ".github/workflows/_diag-*.yml"
 permissions: {}
 jobs:
   call:
