@@ -83,7 +83,7 @@ name: 'Deploy Sources Render'
       - 'uses': 'actions/checkout@v7'
         'with':
           'repository': 'JorisJonkers-dev/github-workflows'
-          'ref': 'v0.15.1' # x-release-please-version
+          'ref': 'v0.15.2' # x-release-please-version
           'path': '.github-workflows'
           'persist-credentials': false
 
