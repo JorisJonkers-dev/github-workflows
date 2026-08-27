@@ -353,10 +353,22 @@ class RenovatePinTest(unittest.TestCase):
         self.assertIsNotNone(actions_group, "renovate.json must have 'github-actions pinned digests' group")
         schedule_str = " ".join(actions_group.get("schedule", []))
         self.assertIn("monday", schedule_str.lower(), "github-actions group must run on monday")
+        # Check the intent, not one spelling of it. excludePackageNames and
+        # matchPackagePatterns are deprecated: Renovate migrates them into
+        # matchPackageNames: ["*", "!repo"], and then rejects that combination,
+        # which stopped Renovate opening PRs on this repo entirely (#108).
+        # Modern form is negation-only matchPackageNames.
+        excluded = set(actions_group.get("excludePackageNames", []))
+        excluded |= {
+            name[1:]
+            for name in actions_group.get("matchPackageNames", [])
+            if name.startswith("!")
+        }
         self.assertIn(
             "JorisJonkers-dev/github-workflows",
-            actions_group.get("excludePackageNames", []),
-            "github-workflows must be excluded from the digest-pin group",
+            excluded,
+            "github-workflows must be excluded from the digest-pin group, "
+            "via excludePackageNames or a negated matchPackageNames entry",
         )
 
 
