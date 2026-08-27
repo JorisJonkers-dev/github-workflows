@@ -99,6 +99,10 @@ name: 'Add to Project'
           'CONTENT_URL': '${{ inputs.content-url }}'
           'REPO': '${{ github.repository }}'
         'run': |
+          # The $o/$n/$p/$c inside the single-quoted GraphQL documents are
+          # GraphQL variables, not shell expansions, so SC2016 is a false
+          # positive here.
+          # shellcheck disable=SC2016
           set -euo pipefail
 
           owner="$(printf '%s' "$PROJECT_URL" | sed -E 's#.*/orgs/([^/]+)/projects/.*#\1#')"
