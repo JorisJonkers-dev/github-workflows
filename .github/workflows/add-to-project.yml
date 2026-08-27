@@ -18,6 +18,14 @@ name: 'Add to Project'
         'required': false
         'type': 'string'
         'default': 'https://github.com/orgs/JorisJonkers-dev/projects/2'
+      'scope':
+        'description': 'repo = this repository only. org = every repository in the organization.'
+        'required': false
+        'type': 'choice'
+        'default': 'repo'
+        'options':
+          - 'repo'
+          - 'org'
   'workflow_call':
     'inputs':
       'manual':
@@ -35,6 +43,11 @@ name: 'Add to Project'
         'required': false
         'type': 'string'
         'default': 'https://github.com/orgs/JorisJonkers-dev/projects/2'
+      'scope':
+        'description': 'repo = the calling repository only. org = every repository in the organization. Implies manual.'
+        'required': false
+        'type': 'string'
+        'default': 'repo'
     'secrets':
       'PROJECT_AUTOMATION_APP_ID':
         'description': 'GitHub App id with organization Projects write permission.'
@@ -70,6 +83,8 @@ name: 'Add to Project'
           'permission-organization-projects': 'write'
           'permission-issues': 'read'
           'permission-pull-requests': 'read'
+          # Needed to enumerate the organization's repositories for scope: org.
+          'permission-metadata': 'read'
 
       - 'name': 'Validate Project token'
         'env':
@@ -83,7 +98,7 @@ name: 'Add to Project'
           fi
 
       - 'name': 'Add issue or pull request'
-        'if': "${{ github.event_name != 'workflow_dispatch' && !inputs.manual }}"
+        'if': "${{ github.event_name != 'workflow_dispatch' && !inputs.manual && inputs.scope != 'org' }}"
         'uses': 'actions/add-to-project@v2.0.0'
         'with':
           'project-url': '${{ inputs.project-url }}'
@@ -91,13 +106,14 @@ name: 'Add to Project'
 
       # actions/add-to-project reads the triggering event, so it cannot serve a
       # manual run. This adds items by explicit URL instead.
-      - 'name': 'Add by URL (manual recovery)'
-        'if': "${{ github.event_name == 'workflow_dispatch' || inputs.manual }}"
+      - 'name': 'Add by URL (manual recovery, or sweep)'
+        'if': "${{ github.event_name == 'workflow_dispatch' || inputs.manual || inputs.scope == 'org' }}"
         'env':
           'GH_TOKEN': '${{ steps.app-token.outputs.token || secrets.PROJECT_AUTOMATION_TOKEN }}'
           'PROJECT_URL': '${{ inputs.project-url }}'
           'CONTENT_URL': '${{ inputs.content-url }}'
           'REPO': '${{ github.repository }}'
+          'SCOPE': '${{ inputs.scope || ''repo'' }}'
         'run': |
           set -euo pipefail
 
@@ -110,12 +126,54 @@ name: 'Add to Project'
           ' -f o="$owner" -F n="$number" --jq '.data.organization.projectV2.id')"
           [ -n "$project_id" ] || { echo "::error::could not resolve project id from $PROJECT_URL"; exit 1; }
 
+          unreachable=0
+          urls_file="$(mktemp)"
+
+          # Appends one repo's open issue and PR urls to $urls_file, or warns
+          # and appends nothing when the App cannot see it. A repo the token
+          # was never granted must not fail an org-wide sweep -- that is a fact
+          # about installation scope, not about the board.
+          #
+          # Deliberately writes to a file rather than returning urls on stdout:
+          # a $(collect_repo ...) call would run in a subshell, losing the
+          # unreachable counter and capturing the ::warning:: lines into the
+          # url list instead of emitting them.
+          collect_repo() {
+            target="$1"
+            if ! issues="$(gh issue list --repo "$target" --state open --limit 500 --json url --jq '.[].url' 2>/dev/null)"; then
+              echo "::warning::skipping $target: issues not readable by this token"
+              unreachable=$((unreachable+1))
+              return 0
+            fi
+            prs="$(gh pr list --repo "$target" --state open --limit 500 --json url --jq '.[].url' 2>/dev/null || true)"
+            printf '%s\n%s\n' "$issues" "$prs" >> "$urls_file"
+          }
+
           if [ -n "$CONTENT_URL" ]; then
             urls="$CONTENT_URL"
+          elif [ "$SCOPE" = 'org' ]; then
+            # Billing follows the caller, never the repo holding this workflow.
+            # An org-wide sweep therefore only saves minutes when it is called
+            # from a PUBLIC repo, where standard runners are free -- see the
+            # scheduled caller in the org's .github repository.
+            repos="$(gh repo list "$owner" --limit 1000 --no-archived \
+              --json nameWithOwner --jq '.[].nameWithOwner')"
+            repo_count="$(printf '%s\n' "$repos" | grep -c . || true)"
+            echo "::notice::org-wide backfill across ${repo_count} repo(s) in $owner"
+            for target in $repos; do
+              collect_repo "$target"
+            done
+            urls="$(cat "$urls_file")"
           else
             echo "::notice::backfilling every open issue and pull request in $REPO"
-            urls="$(gh issue list --repo "$REPO" --state open --limit 500 --json url --jq '.[].url')
-          $(gh pr list --repo "$REPO" --state open --limit 500 --json url --jq '.[].url')"
+            collect_repo "$REPO"
+            urls="$(cat "$urls_file")"
+            # For a single named repo, unreadable is a real failure rather than
+            # an installation-scope fact: the caller asked for exactly this one.
+            if [ "$unreachable" -ne 0 ]; then
+              echo "::error::$REPO is not readable by this token"
+              exit 1
+            fi
           fi
 
           added=0; skipped=0
@@ -138,5 +196,7 @@ name: 'Add to Project'
               skipped=$((skipped+1)); echo "::warning::failed to add $url"
             fi
           done
-          echo "::notice::added/confirmed $added item(s), $skipped failure(s)"
+          echo "::notice::added/confirmed $added item(s), $skipped failure(s), $unreachable unreadable repo(s)"
+          # Unreadable repos are reported but do not fail the sweep; a genuine
+          # failure to add a resolvable item still does.
           [ "$skipped" -eq 0 ]
