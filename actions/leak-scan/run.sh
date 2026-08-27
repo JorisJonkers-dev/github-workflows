@@ -151,7 +151,14 @@ run_path_deny_list_scan() {
     for pattern in "${all_patterns[@]}"; do
       # grep: never print matching content, only file list
       local matches
+      # Exclude the action's own checkout. The consumer workflow clones
+      # github-workflows into .github-workflows/ at the repo root, and PATHS is
+      # usually ".", so the tree being scanned contains data/leak-patterns.json -
+      # the deny-list patterns themselves, as literal JSON strings. Without this
+      # the scan matches its own configuration and can never pass. Exclude the
+      # directory, never weaken the patterns.
       matches=$(grep -rn \
+        --exclude-dir='.github-workflows' \
         --include='*.yaml' \
         --include='*.yml' \
         --include='*.json' \
