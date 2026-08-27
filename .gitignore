@@ -33,3 +33,9 @@ scratchpads/
 *.scratch.md
 *agent-council*.md
 tools/deploy-check/node_modules/
+
+# Python bytecode. These were committed and then reported as modified on every
+# test run, because .pyc embeds the source mtime and the interpreter version -
+# so the repo was permanently dirty and every diff carried binary noise.
+__pycache__/
+*.py[cod]
