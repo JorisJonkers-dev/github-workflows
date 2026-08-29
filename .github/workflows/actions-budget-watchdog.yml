@@ -69,6 +69,13 @@ name: 'Actions Budget Watchdog'
           'owner': '${{ github.repository_owner }}'
           'permission-metadata': 'read'
           'permission-issues': 'write'
+          # Billing lives behind its own App permission ("Organization plan",
+          # read-only). Without it the usage endpoint answers 403 "Resource not
+          # accessible by integration" even though the same token can list
+          # every repo in the org -- requesting it here is necessary but not
+          # sufficient: the App must also have been granted it, and the updated
+          # installation permissions accepted.
+          'permission-organization-plan': 'read'
 
       - 'name': 'Check the Actions minute budget'
         'env':
@@ -144,7 +151,17 @@ name: 'Actions Budget Watchdog'
                           f'/organizations/{owner}/settings/billing/usage?year={now.year}&month={now.month}',
                           default=None)
           if usage is None or 'usageItems' not in usage:
-              print('::error::could not read billing usage; the endpoint or token scope may have changed')
+              # Fail loud rather than reporting zero. A budget watchdog that
+              # quietly reports 0% when it cannot read the budget is worse than
+              # one that is absent, because it looks like good news.
+              print('::error::could not read the org billing usage endpoint.')
+              print('::error::A 403 "Resource not accessible by integration" here means the '
+                    'App lacks the "Organization plan" (read) permission: request it on the '
+                    'App, then accept the updated installation permissions. Repo listing '
+                    'working while this fails is exactly that case.')
+              print('::error::Otherwise supply BUDGET_TOKEN -- a token with org billing read '
+                    'access. Note the classic /orgs/{org}/settings/billing/actions endpoint is '
+                    'gone (410); this uses the enhanced billing endpoint.')
               sys.exit(1)
 
           per_repo = {}
