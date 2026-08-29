@@ -62,6 +62,34 @@ path_scan_status="pass"
 #
 # Pre-existing content is not left unguarded: all-refs mode still reads whole
 # files across every ref, which is the mode built for that question.
+# Emit the added lines of a unified diff read on stdin, dropping any whose file
+# path starts with one of the space-separated prefixes in $1.
+#
+# EXCLUDE_PATHS is documented as "Only effective in pr-diff mode", but it was
+# only ever wired into the path scan -- the pr-diff deny-list ignored it
+# entirely, so callers passing exclude-paths to suppress a known false-positive
+# class silently got no exclusion at all.
+#
+# Path prefixes are matched as literal string prefixes, matching the path scan's
+# documented semantics. substr is used rather than $2 so paths containing spaces
+# are handled.
+filter_added_lines() {
+  local excludes="$1"
+  awk -v excludes="$excludes" '
+    BEGIN { n = split(excludes, ex, " "); skip = 0 }
+    /^\+\+\+ / {
+      path = substr($0, 5)
+      sub(/^b\//, "", path)
+      skip = 0
+      for (i = 1; i <= n; i++) {
+        if (ex[i] != "" && index(path, ex[i]) == 1) { skip = 1; break }
+      }
+      next
+    }
+    /^\+/ { if (!skip) print substr($0, 2) }
+  '
+}
+
 run_diff_deny_list_scan() {
   local patterns_file="${GW_ROOT}/data/leak-patterns.json"
   [[ -f "$patterns_file" ]] || fail "E_MISSING_LEAK_PATTERNS: ${patterns_file} not found"
@@ -81,9 +109,23 @@ run_diff_deny_list_scan() {
 
   # Added lines only, with the leading marker stripped so a pattern anchored at
   # line start still behaves. --unified=0 keeps context lines out.
-  local added
+  # EXCLUDE_PATHS is applied here, per its documented "pr-diff mode" contract.
+  local added all_added
+  all_added=$(git diff --unified=0 "$BASE_REF" "$HEAD_REF" -- $PATHS 2>/dev/null \
+    | filter_added_lines "" || true)
   added=$(git diff --unified=0 "$BASE_REF" "$HEAD_REF" -- $PATHS 2>/dev/null \
-    | grep -E '^\+' | grep -vE '^\+\+\+' | sed 's/^+//' || true)
+    | filter_added_lines "${EXCLUDE_PATHS:-}" || true)
+
+  if [[ -n "${EXCLUDE_PATHS:-}" ]]; then
+    local before after excluded
+    before=$(printf '%s\n' "$all_added" | grep -c . || true)
+    after=$(printf '%s\n' "$added" | grep -c . || true)
+    excluded=$(( before - after ))
+    if [[ "$excluded" -gt 0 ]]; then
+      printf '::notice::leak-scan: excluded %d added line(s) matching EXCLUDE_PATHS prefixes\n' \
+        "$excluded"
+    fi
+  fi
 
   if [[ -z "$added" ]]; then
     printf '::notice::leak-scan: no added lines in scope\n'
@@ -95,7 +137,10 @@ run_diff_deny_list_scan() {
   for pattern in "${all_patterns[@]}"; do
     local count
     # Count only; matching content is never printed.
-    count=$(printf '%s\n' "$added" | grep -c -E "$pattern" || true)
+    # -e is required, not stylistic: a pattern beginning with '-'
+    # (-----BEGIN .* PRIVATE KEY-----) is otherwise parsed as an option and
+    # grep exits with a usage error, so the private-key rule never fired.
+    count=$(printf '%s\n' "$added" | grep -c -E -e "$pattern" || true)
     [[ "$count" -gt 0 ]] && { path_scan_status="fail"; matched=$((matched + count)); }
   done
 
@@ -164,7 +209,7 @@ run_path_deny_list_scan() {
         --include='*.json' \
         --include='*.sh' \
         --include='*.md' \
-        -l -E "$pattern" \
+        -l -E -e "$pattern" \
         "$scan_path" 2>/dev/null || true)
       if [[ -n "$matches" ]]; then
         path_scan_status="fail"
@@ -256,8 +301,14 @@ run_pr_diff_scan() {
       filtered_files=$(printf '%s\n' "$filtered_files" \
         | grep -v "^${excl_prefix}" || true)
     done
-    local excluded_count
-    excluded_count=$(( $(printf '%s\n' "$changed_files" | grep -c .) - $(printf '%s\n' "$filtered_files" | grep -c . || echo 0) ))
+    # `grep -c .` prints 0 AND exits 1 on no match, so `|| echo 0` appended a
+    # second "0" and the arithmetic saw "1 - 0\n0" -- a syntax error that killed
+    # the scan whenever EXCLUDE_PATHS excluded every changed file. Capture the
+    # counts first and let `|| true` absorb the exit status.
+    local before_count after_count excluded_count
+    before_count=$(printf '%s\n' "$changed_files" | grep -c . || true)
+    after_count=$(printf '%s\n' "$filtered_files" | grep -c . || true)
+    excluded_count=$(( before_count - after_count ))
     if [[ $excluded_count -gt 0 ]]; then
       printf '::notice::leak-scan: excluded %d path(s) matching EXCLUDE_PATHS prefixes\n' \
         "$excluded_count"
