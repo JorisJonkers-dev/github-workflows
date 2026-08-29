@@ -36,6 +36,14 @@ name: 'Actions Budget Watchdog'
         'required': false
         'type': 'string'
         'default': ''
+      'app-has-billing-permission':
+        'description': >
+          Set true only once the App has actually been granted "Organization plan" (read).
+          create-github-app-token fails outright when asked for a permission the installation
+          does not hold, so requesting it optimistically takes the whole watchdog down.
+        'required': false
+        'type': 'boolean'
+        'default': false
     'secrets':
       'BUDGET_APP_ID':
         'description': 'GitHub App id able to read org billing and repo metadata.'
@@ -59,9 +67,18 @@ name: 'Actions Budget Watchdog'
       'BUDGET_APP_ID': '${{ secrets.BUDGET_APP_ID }}'
       'BUDGET_APP_PRIVATE_KEY': '${{ secrets.BUDGET_APP_PRIVATE_KEY }}'
     'steps':
-      - 'name': 'Mint organization token'
-        'id': 'app-token'
-        'if': '${{ env.BUDGET_APP_ID != '''' && env.BUDGET_APP_PRIVATE_KEY != '''' }}'
+      # Two minting steps, because create-github-app-token FAILS THE JOB when
+      # asked for a permission the installation does not hold -- it does not
+      # degrade. Requesting billing optimistically therefore takes the whole
+      # watchdog down at token minting, before it can even report why, which is
+      # strictly worse than reading no billing at all.
+      #
+      # Billing sits behind its own App permission: "Organization plan"
+      # (read-only). Until the App is granted it, leave
+      # app-has-billing-permission false and supply BUDGET_TOKEN instead.
+      - 'name': 'Mint organization token (billing permission granted)'
+        'id': 'app-token-billing'
+        'if': "${{ env.BUDGET_APP_ID != '' && env.BUDGET_APP_PRIVATE_KEY != '' && inputs.app-has-billing-permission }}"
         'uses': 'actions/create-github-app-token@v3'
         'with':
           'app-id': '${{ env.BUDGET_APP_ID }}'
@@ -69,17 +86,22 @@ name: 'Actions Budget Watchdog'
           'owner': '${{ github.repository_owner }}'
           'permission-metadata': 'read'
           'permission-issues': 'write'
-          # Billing lives behind its own App permission ("Organization plan",
-          # read-only). Without it the usage endpoint answers 403 "Resource not
-          # accessible by integration" even though the same token can list
-          # every repo in the org -- requesting it here is necessary but not
-          # sufficient: the App must also have been granted it, and the updated
-          # installation permissions accepted.
           'permission-organization-plan': 'read'
+
+      - 'name': 'Mint organization token'
+        'id': 'app-token'
+        'if': "${{ env.BUDGET_APP_ID != '' && env.BUDGET_APP_PRIVATE_KEY != '' && !inputs.app-has-billing-permission }}"
+        'uses': 'actions/create-github-app-token@v3'
+        'with':
+          'app-id': '${{ env.BUDGET_APP_ID }}'
+          'private-key': '${{ env.BUDGET_APP_PRIVATE_KEY }}'
+          'owner': '${{ github.repository_owner }}'
+          'permission-metadata': 'read'
+          'permission-issues': 'write'
 
       - 'name': 'Check the Actions minute budget'
         'env':
-          'GH_TOKEN': '${{ steps.app-token.outputs.token || secrets.BUDGET_TOKEN || github.token }}'
+          'GH_TOKEN': "${{ steps.app-token-billing.outputs.token || secrets.BUDGET_TOKEN || steps.app-token.outputs.token || github.token }}"
           'OWNER': '${{ github.repository_owner }}'
           'ALLOWANCE': '${{ inputs.allowance-minutes }}'
           'WARN_PCT': '${{ inputs.warn-percent }}'
