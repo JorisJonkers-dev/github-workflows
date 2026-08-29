@@ -65,7 +65,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: JorisJonkers-dev/github-workflows
-          ref: v0.16.1 # x-release-please-version
+          ref: v0.17.0 # x-release-please-version
           path: .github-workflows
           persist-credentials: false
 

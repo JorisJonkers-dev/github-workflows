@@ -7,6 +7,22 @@
 * enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
 * fail Gradle warnings and deprecations while making JVM lint static-only by default
 
+## [0.17.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.16.1...v0.17.0) (2026-08-29)
+
+
+### Features
+
+* **add-to-project:** add a manual recovery hatch ([#111](https://github.com/JorisJonkers-dev/github-workflows/issues/111)) ([744261c](https://github.com/JorisJonkers-dev/github-workflows/commit/744261c3b34b2d089a0a65fff080b398add3af76))
+* **add-to-project:** add an org-wide backfill scope ([#124](https://github.com/JorisJonkers-dev/github-workflows/issues/124)) ([592d6df](https://github.com/JorisJonkers-dev/github-workflows/commit/592d6df404471d7fdb2587b071edac4271793937)), closes [#122](https://github.com/JorisJonkers-dev/github-workflows/issues/122)
+* **hygiene:** add an advisory org-wide repository hygiene sweep ([#125](https://github.com/JorisJonkers-dev/github-workflows/issues/125)) ([345d473](https://github.com/JorisJonkers-dev/github-workflows/commit/345d473dad8dcd606c44022b3d56c108d358da6d)), closes [#123](https://github.com/JorisJonkers-dev/github-workflows/issues/123)
+
+
+### Bug Fixes
+
+* **leak-scan:** exclude the action's own checkout from the deny-list scan ([#109](https://github.com/JorisJonkers-dev/github-workflows/issues/109)) ([5dfb39d](https://github.com/JorisJonkers-dev/github-workflows/commit/5dfb39d326130059e86b2808e948e62e37b8ff7b))
+* **leak-scan:** repair four rules that could never fire ([#127](https://github.com/JorisJonkers-dev/github-workflows/issues/127)) ([300e8af](https://github.com/JorisJonkers-dev/github-workflows/commit/300e8af5256ff419adea3a4b309c91e848a631c3))
+* **renovate:** drop the deprecated match keys that break config validation ([#112](https://github.com/JorisJonkers-dev/github-workflows/issues/112)) ([d9027a8](https://github.com/JorisJonkers-dev/github-workflows/commit/d9027a8b8dbf4a387617772616e4c4185355982c))
+
 ## [0.16.1](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.16.0...v0.16.1) (2026-08-20)
 
 
