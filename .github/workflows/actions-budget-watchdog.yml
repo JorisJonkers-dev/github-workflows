@@ -1,0 +1,240 @@
+# Warns while there is still room to act, before the org runs out of Actions
+# minutes. This estate ran out mid-working-session with no warning at all:
+# every private repo went dark, runs allocated nothing and failed in three
+# seconds, and the first sign of it was workflows failing for reasons that
+# looked like broken code.
+#
+# Call this from a PUBLIC repo. Standard runners are free there, so the
+# watchdog never contributes to the problem it watches.
+name: 'Actions Budget Watchdog'
+
+'on':
+  'workflow_call':
+    'inputs':
+      'allowance-minutes':
+        'description': 'Included standard-runner minutes per month for the plan (GitHub Team is 3000).'
+        'required': false
+        'type': 'number'
+        'default': 3000
+      'warn-percent':
+        'description': 'Emit a warning at or above this percentage of the allowance.'
+        'required': false
+        'type': 'number'
+        'default': 70
+      'critical-percent':
+        'description': 'Fail the run and raise the alert at or above this percentage.'
+        'required': false
+        'type': 'number'
+        'default': 85
+      'alert-repo':
+        'description': 'owner/repo to file the sticky alert issue in. Empty disables issue filing.'
+        'required': false
+        'type': 'string'
+        'default': ''
+      'alert-labels':
+        'description': 'Comma-separated labels for the alert issue. Must already exist in alert-repo.'
+        'required': false
+        'type': 'string'
+        'default': ''
+    'secrets':
+      'BUDGET_APP_ID':
+        'description': 'GitHub App id able to read org billing and repo metadata.'
+        'required': false
+      'BUDGET_APP_PRIVATE_KEY':
+        'description': 'Private key for that App.'
+        'required': false
+      'BUDGET_TOKEN':
+        'description': 'Fallback token with the same access.'
+        'required': false
+
+'permissions':
+  'contents': 'read'
+
+'jobs':
+  'check':
+    'name': 'Actions Budget Watchdog'
+    'runs-on': 'ubuntu-latest'
+    'timeout-minutes': 15
+    'env':
+      'BUDGET_APP_ID': '${{ secrets.BUDGET_APP_ID }}'
+      'BUDGET_APP_PRIVATE_KEY': '${{ secrets.BUDGET_APP_PRIVATE_KEY }}'
+    'steps':
+      - 'name': 'Mint organization token'
+        'id': 'app-token'
+        'if': '${{ env.BUDGET_APP_ID != '''' && env.BUDGET_APP_PRIVATE_KEY != '''' }}'
+        'uses': 'actions/create-github-app-token@v3'
+        'with':
+          'app-id': '${{ env.BUDGET_APP_ID }}'
+          'private-key': '${{ env.BUDGET_APP_PRIVATE_KEY }}'
+          'owner': '${{ github.repository_owner }}'
+          'permission-metadata': 'read'
+          'permission-issues': 'write'
+
+      - 'name': 'Check the Actions minute budget'
+        'env':
+          'GH_TOKEN': '${{ steps.app-token.outputs.token || secrets.BUDGET_TOKEN || github.token }}'
+          'OWNER': '${{ github.repository_owner }}'
+          'ALLOWANCE': '${{ inputs.allowance-minutes }}'
+          'WARN_PCT': '${{ inputs.warn-percent }}'
+          'CRIT_PCT': '${{ inputs.critical-percent }}'
+          'ALERT_REPO': '${{ inputs.alert-repo }}'
+          'ALERT_LABELS': '${{ inputs.alert-labels }}'
+        'run': |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from datetime import datetime, timezone
+
+          owner = os.environ['OWNER']
+          allowance = float(os.environ['ALLOWANCE'])
+          warn_pct = float(os.environ['WARN_PCT'])
+          crit_pct = float(os.environ['CRIT_PCT'])
+          alert_repo = os.environ.get('ALERT_REPO', '').strip()
+          alert_labels = [x.strip() for x in os.environ.get('ALERT_LABELS', '').split(',') if x.strip()]
+
+          MARKER = '<!-- actions-budget-watchdog -->'
+
+          # Included minutes are consumed at a per-runner multiplier, not one
+          # minute per minute: a macOS minute costs ten. Counting raw minutes
+          # would under-report a macOS-heavy month by an order of magnitude.
+          # Unrecognised minute SKUs are surfaced rather than assumed to be 1x,
+          # because silently under-counting is the failure that lets a cap
+          # arrive unannounced.
+          MULTIPLIERS = (
+              ('macos', 10.0),
+              ('windows', 2.0),
+              ('linux', 1.0),
+          )
+
+          def multiplier(sku):
+              low = sku.lower()
+              for needle, mult in MULTIPLIERS:
+                  if needle in low:
+                      return mult, True
+              return 1.0, False
+
+          def gh_json(*args, default=None):
+              proc = subprocess.run(['gh', *args], capture_output=True, text=True, check=False)
+              if proc.returncode != 0:
+                  print(f'::warning::gh {" ".join(args[:3])} failed: {proc.stderr.strip()[:400]}')
+                  return default
+              try:
+                  return json.loads(proc.stdout)
+              except json.JSONDecodeError:
+                  return default
+
+          # Which repos are private. Public-repo usage appears in the billing
+          # response too, fully discounted rather than absent, so including it
+          # overstates consumption several times over.
+          repos = gh_json('repo', 'list', owner, '--limit', '1000',
+                          '--json', 'name,visibility', default=None)
+          if repos is None:
+              print(f'::error::could not list repositories for {owner}')
+              sys.exit(1)
+          private = {r['name'] for r in repos if r.get('visibility', '').upper() == 'PRIVATE'}
+          print(f'::notice::{len(private)} private repo(s) of {len(repos)} in {owner}')
+
+          now = datetime.now(timezone.utc)
+          # The classic /orgs/{org}/settings/billing/actions endpoint now returns
+          # 410 Gone. This one replaces it and needs no admin:org scope.
+          usage = gh_json('api',
+                          f'/organizations/{owner}/settings/billing/usage?year={now.year}&month={now.month}',
+                          default=None)
+          if usage is None or 'usageItems' not in usage:
+              print('::error::could not read billing usage; the endpoint or token scope may have changed')
+              sys.exit(1)
+
+          per_repo = {}
+          unknown_skus = set()
+          for item in usage['usageItems']:
+              if item.get('product') != 'actions' or item.get('unitType') != 'Minutes':
+                  continue  # skips 'Actions storage', which is GigabyteHours
+              repo = item.get('repositoryName', '')
+              if repo not in private:
+                  continue
+              mult, known = multiplier(item.get('sku', ''))
+              if not known:
+                  unknown_skus.add(item.get('sku', ''))
+              per_repo[repo] = per_repo.get(repo, 0.0) + float(item.get('quantity', 0)) * mult
+
+          for sku in sorted(unknown_skus):
+              print(f'::warning::unrecognised Actions minute SKU {sku!r}, counted at 1x; '
+                    'confirm its multiplier or this figure under-reports')
+
+          used = sum(per_repo.values())
+          pct = (used / allowance * 100) if allowance else 0.0
+          top = sorted(per_repo.items(), key=lambda kv: -kv[1])[:10]
+
+          headline = (f'{used:.0f} of {allowance:.0f} included minutes used '
+                      f'({pct:.0f}%) by private repos in {now:%B %Y}')
+          print(f'::notice::{headline}')
+
+          table = '\n'.join(f'| `{r}` | {m:.0f} |' for r, m in top) or '| _none_ | 0 |'
+          body_detail = (
+              f'| repo | minutes |\n| --- | --- |\n{table}\n\n'
+              f'_Month to date, {now:%Y-%m-%d}. Private repositories only; public-repo '
+              'usage is free and excluded. Minutes are weighted by runner '
+              'multiplier (macOS 10x, Windows 2x, Linux 1x), which is how the '
+              'allowance is actually consumed._'
+          )
+
+          summary = os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary:
+              with open(summary, 'a') as fh:
+                  fh.write(f'## Actions budget\n\n**{headline}**\n\n{body_detail}\n')
+
+          level = 'ok'
+          if pct >= crit_pct:
+              level = 'critical'
+          elif pct >= warn_pct:
+              level = 'warning'
+
+          if level == 'ok':
+              print(f'::notice::below the {warn_pct:.0f}% warning threshold; nothing to raise')
+              sys.exit(0)
+
+          if level == 'warning':
+              print(f'::warning::{headline} — past the {warn_pct:.0f}% warning threshold')
+
+          if alert_repo:
+              title = f'Actions minutes at {pct:.0f}% of the monthly allowance'
+              body = (
+                  f'{MARKER}\n'
+                  f'**{headline}**\n\n'
+                  f'{body_detail}\n\n'
+                  f'Thresholds: warn at {warn_pct:.0f}%, critical at {crit_pct:.0f}%.\n\n'
+                  'When the allowance runs out, private-repo runs are created but '
+                  'allocated no runner: they fail within seconds with zero steps '
+                  'executed, which reads as broken code rather than an exhausted '
+                  'budget. Public repos keep working throughout.\n\n'
+                  '_Raised by the Actions Budget Watchdog. This issue is updated in '
+                  'place rather than reopened each run._'
+              )
+              existing = gh_json('issue', 'list', '--repo', alert_repo, '--state', 'open',
+                                 '--search', MARKER, '--json', 'number', default=[]) or []
+              if existing:
+                  num = str(existing[0]['number'])
+                  subprocess.run(['gh', 'issue', 'edit', num, '--repo', alert_repo,
+                                  '--title', title, '--body', body], check=False)
+                  print(f'::notice::updated {alert_repo}#{num}')
+              else:
+                  args = ['gh', 'issue', 'create', '--repo', alert_repo,
+                          '--title', title, '--body', body]
+                  for lab in alert_labels:
+                      args += ['--label', lab]
+                  proc = subprocess.run(args, capture_output=True, text=True, check=False)
+                  if proc.returncode == 0:
+                      print(f'::notice::raised {proc.stdout.strip()}')
+                  else:
+                      # Most likely a label that does not exist in alert-repo.
+                      print(f'::warning::could not file the alert issue: {proc.stderr.strip()[:400]}')
+
+          # Critical fails the run so it is visibly red even if nobody reads
+          # issues. Warning stays green: it is information, not an incident.
+          if level == 'critical':
+              print(f'::error::{headline} — at or past the {crit_pct:.0f}% critical threshold')
+              sys.exit(1)
+          PY
