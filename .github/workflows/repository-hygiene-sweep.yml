@@ -1,0 +1,260 @@
+# Advisory org-wide counterpart to repository-hygiene-guard.yml.
+#
+# The guard is a blocking per-PR check. It runs in the repo being checked, so
+# every private repo firing it pays a billable minute for a job that averages
+# 6.6 seconds -- ~292 minutes a month across fleet-infra and nix-config.
+#
+# The check reads pull request metadata and a diff. It needs no private
+# repository content, so it can run against the API from a public repo and
+# cost nothing. This workflow is that: one sweep over every open pull request
+# in the organization, driven from a public caller.
+#
+# It is ADVISORY. It reports; it cannot block a merge. That is a real
+# difference from the guard, not an implementation detail -- do not remove a
+# repo's blocking gate without deciding that advisory is acceptable there.
+#
+# Changed files come from the pulls/{n}/files API rather than a clone: a sweep
+# would otherwise have to check out every repo in the org to diff two refs.
+name: 'Repository Hygiene Sweep'
+
+'on':
+  'workflow_call':
+    'inputs':
+      'override-label':
+        'description': 'Pull request label that exempts a PR from the sweep.'
+        'required': false
+        'type': 'string'
+        'default': 'allow-repository-hygiene-exception'
+      'allowlist-regex':
+        'description': 'Python regex for intentional exceptions.'
+        'required': false
+        'type': 'string'
+        'default': ''
+      'comment':
+        'description': 'Post a sticky comment on offending pull requests.'
+        'required': false
+        'type': 'boolean'
+        'default': true
+      'exclude-repos':
+        'description': 'Newline-separated repo names to skip (e.g. ones keeping the blocking guard).'
+        'required': false
+        'type': 'string'
+        'default': ''
+      'deny-globs':
+        'description': 'Newline-separated denied path globs.'
+        'required': false
+        'type': 'string'
+        'default': |
+          .specify/**
+          specs/[0-9][0-9][0-9]-*/**
+          plans/**
+          planning/**
+          scratchpad/**
+          scratchpads/**
+          .agent-council/**
+          **/*scratchpad*.md
+          **/*.scratch.md
+          **/*agent-council*.md
+          .claude/commands/speckit*.md
+          .claude/skills/speckit*/**
+          .agents/skills/speckit*/**
+          templates/**/.specify/**
+          templates/**/.claude/commands/speckit*.md
+    'secrets':
+      'HYGIENE_APP_ID':
+        'description': 'GitHub App id able to read pull requests org-wide and comment.'
+        'required': false
+      'HYGIENE_APP_PRIVATE_KEY':
+        'description': 'Private key for that App.'
+        'required': false
+      'HYGIENE_TOKEN':
+        'description': 'Fallback token with the same access.'
+        'required': false
+
+'permissions':
+  'contents': 'read'
+
+'jobs':
+  'sweep':
+    'name': 'Repository Hygiene Sweep'
+    'runs-on': 'ubuntu-latest'
+    'timeout-minutes': 30
+    'env':
+      'HYGIENE_APP_ID': '${{ secrets.HYGIENE_APP_ID }}'
+      'HYGIENE_APP_PRIVATE_KEY': '${{ secrets.HYGIENE_APP_PRIVATE_KEY }}'
+    'steps':
+      - 'name': 'Mint organization token'
+        'id': 'app-token'
+        'if': '${{ env.HYGIENE_APP_ID != '''' && env.HYGIENE_APP_PRIVATE_KEY != '''' }}'
+        'uses': 'actions/create-github-app-token@v3'
+        'with':
+          'app-id': '${{ env.HYGIENE_APP_ID }}'
+          'private-key': '${{ env.HYGIENE_APP_PRIVATE_KEY }}'
+          'owner': '${{ github.repository_owner }}'
+          'permission-pull-requests': 'write'
+          'permission-issues': 'write'
+          'permission-metadata': 'read'
+
+      - 'name': 'Sweep open pull requests'
+        'env':
+          'GH_TOKEN': '${{ steps.app-token.outputs.token || secrets.HYGIENE_TOKEN || github.token }}'
+          'OWNER': '${{ github.repository_owner }}'
+          'DENY_GLOBS': '${{ inputs.deny-globs }}'
+          'ALLOWLIST_REGEX': '${{ inputs.allowlist-regex }}'
+          'OVERRIDE_LABEL': '${{ inputs.override-label }}'
+          'EXCLUDE_REPOS': '${{ inputs.exclude-repos }}'
+          'POST_COMMENT': '${{ inputs.comment }}'
+        'run': |
+          set -euo pipefail
+          python3 - <<'PY'
+          import fnmatch
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+
+          owner = os.environ['OWNER']
+          deny_globs = [
+              line.strip()
+              for line in os.environ['DENY_GLOBS'].splitlines()
+              if line.strip() and not line.strip().startswith('#')
+          ]
+          allowlist_raw = os.environ.get('ALLOWLIST_REGEX', '').strip()
+          allowlist = re.compile(allowlist_raw) if allowlist_raw else None
+          override_label = os.environ.get('OVERRIDE_LABEL', '').strip()
+          excluded = {
+              line.strip()
+              for line in os.environ.get('EXCLUDE_REPOS', '').splitlines()
+              if line.strip()
+          }
+          post_comment = os.environ.get('POST_COMMENT', 'true') == 'true'
+
+          MARKER = '<!-- repository-hygiene-sweep -->'
+
+          def gh(*args):
+              return subprocess.run(
+                  ['gh', *args], capture_output=True, text=True, check=False,
+              )
+
+          def gh_json(*args, default=None):
+              proc = gh(*args)
+              if proc.returncode != 0:
+                  return default
+              try:
+                  return json.loads(proc.stdout)
+              except json.JSONDecodeError:
+                  return default
+
+          repos = gh_json(
+              'repo', 'list', owner, '--limit', '1000', '--no-archived',
+              '--json', 'name', default=None,
+          )
+          if repos is None:
+              print('::error::could not enumerate repositories for ' + owner)
+              sys.exit(1)
+
+          names = [r['name'] for r in repos if r['name'] not in excluded]
+          print(f'::notice::sweeping {len(names)} repo(s); {len(excluded)} excluded')
+
+          offenders = []
+          unreachable = 0
+          scanned = 0
+
+          for name in names:
+              slug = f'{owner}/{name}'
+              prs = gh_json(
+                  'pr', 'list', '--repo', slug, '--state', 'open', '--limit', '200',
+                  '--json', 'number,title,url,labels', default=None,
+              )
+              if prs is None:
+                  print(f'::warning::skipping {slug}: pull requests not readable')
+                  unreachable += 1
+                  continue
+
+              for pr in prs:
+                  labels = {lab['name'] for lab in pr.get('labels', [])}
+                  if override_label and override_label in labels:
+                      continue
+                  scanned += 1
+
+                  # Changed files from the API -- no clone, no diff of two refs.
+                  files = gh_json(
+                      'api', '--paginate',
+                      f'repos/{slug}/pulls/{pr["number"]}/files?per_page=100',
+                      '--jq', '[.[] | select(.status != "removed") | .filename]',
+                      default=None,
+                  )
+                  if files is None:
+                      print(f'::warning::could not read changed files for {pr["url"]}')
+                      continue
+
+                  denied = [
+                      path for path in files
+                      if not (allowlist and allowlist.search(path))
+                      and any(fnmatch.fnmatchcase(path, g) for g in deny_globs)
+                  ]
+                  if denied:
+                      offenders.append({'slug': slug, 'pr': pr, 'denied': denied})
+
+          for item in offenders:
+              pr = item['pr']
+              listing = '\n'.join(f'  - {p}' for p in item['denied'])
+              print(f'::error::{pr["url"]} adds denied planning artifacts:')
+              print(listing)
+
+              if not post_comment:
+                  continue
+
+              body = (
+                  f'{MARKER}\n'
+                  '**Repository hygiene sweep**\n\n'
+                  'This pull request adds or modifies denied planning/agent scratch '
+                  'artifacts:\n\n'
+                  + '\n'.join(f'- `{p}`' for p in item['denied'])
+                  + '\n\nMove planning material to issues/PRs or durable docs, or apply '
+                  f'the `{override_label}` label for an approved exception.\n\n'
+                  '_This sweep is advisory and does not block merging._'
+              )
+
+              # Sticky: update the sweep's own comment rather than adding one
+              # every 6 hours. Comment spam is how an advisory check gets muted.
+              existing = gh_json(
+                  'api', '--paginate',
+                  f'repos/{item["slug"]}/issues/{pr["number"]}/comments?per_page=100',
+                  '--jq', f'[.[] | select(.body | contains("{MARKER}")) | .id]',
+                  default=[],
+              ) or []
+
+              if existing:
+                  proc = gh(
+                      'api', '--method', 'PATCH',
+                      f'repos/{item["slug"]}/issues/comments/{existing[0]}',
+                      '-f', f'body={body}',
+                  )
+              else:
+                  proc = gh(
+                      'api', '--method', 'POST',
+                      f'repos/{item["slug"]}/issues/{pr["number"]}/comments',
+                      '-f', f'body={body}',
+                  )
+              if proc.returncode != 0:
+                  print(f'::warning::could not comment on {pr["url"]}: {proc.stderr.strip()}')
+
+          summary = (
+              f'scanned {scanned} open pull request(s) across {len(names)} repo(s); '
+              f'{len(offenders)} with denied artifacts; {unreachable} unreadable repo(s)'
+          )
+          print(f'::notice::{summary}')
+
+          step_summary = os.environ.get('GITHUB_STEP_SUMMARY')
+          if step_summary:
+              with open(step_summary, 'a') as fh:
+                  fh.write(f'## Repository Hygiene Sweep\n\n{summary}\n\n')
+                  for item in offenders:
+                      fh.write(f'- [{item["slug"]}#{item["pr"]["number"]}]({item["pr"]["url"]})\n')
+
+          # Fail the run so the sweep is visibly red when something is wrong.
+          # This reports; it does not block any merge.
+          sys.exit(1 if offenders else 0)
+          PY
