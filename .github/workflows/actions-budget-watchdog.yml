@@ -112,10 +112,12 @@ name: 'Actions Budget Watchdog'
           set -euo pipefail
           python3 - <<'PY'
           import json
+          import math
           import os
           import subprocess
           import sys
-          from datetime import datetime, timezone
+          from concurrent.futures import ThreadPoolExecutor
+          from datetime import datetime, timedelta, timezone
 
           owner = os.environ['OWNER']
           allowance = float(os.environ['ALLOWANCE'])
@@ -167,37 +169,128 @@ name: 'Actions Budget Watchdog'
           print(f'::notice::{len(private)} private repo(s) of {len(repos)} in {owner}')
 
           now = datetime.now(timezone.utc)
-          # The classic /orgs/{org}/settings/billing/actions endpoint now returns
-          # 410 Gone. This one replaces it and needs no admin:org scope.
-          usage = gh_json('api',
-                          f'/organizations/{owner}/settings/billing/usage?year={now.year}&month={now.month}',
-                          default=None)
-          if usage is None or 'usageItems' not in usage:
-              # Fail loud rather than reporting zero. A budget watchdog that
-              # quietly reports 0% when it cannot read the budget is worse than
-              # one that is absent, because it looks like good news.
-              print('::error::could not read the org billing usage endpoint.')
-              print('::error::A 403 "Resource not accessible by integration" here means the '
-                    'App lacks the "Organization plan" (read) permission: request it on the '
-                    'App, then accept the updated installation permissions. Repo listing '
-                    'working while this fails is exactly that case.')
-              print('::error::Otherwise supply BUDGET_TOKEN -- a token with org billing read '
-                    'access. Note the classic /orgs/{org}/settings/billing/actions endpoint is '
-                    'gone (410); this uses the enhanced billing endpoint.')
-              sys.exit(1)
 
-          per_repo = {}
-          unknown_skus = set()
-          for item in usage['usageItems']:
-              if item.get('product') != 'actions' or item.get('unitType') != 'Minutes':
-                  continue  # skips 'Actions storage', which is GigabyteHours
-              repo = item.get('repositoryName', '')
-              if repo not in private:
-                  continue
-              mult, known = multiplier(item.get('sku', ''))
-              if not known:
-                  unknown_skus.add(item.get('sku', ''))
-              per_repo[repo] = per_repo.get(repo, 0.0) + float(item.get('quantity', 0)) * mult
+          def from_billing():
+              # Exact and authoritative when the token can reach it. The classic
+              # /orgs/{org}/settings/billing/actions endpoint returns 410 Gone;
+              # this replaces it and needs no admin:org scope -- but billing does
+              # sit behind the App's "Organization plan" (read) permission.
+              usage = gh_json(
+                  'api',
+                  f'/organizations/{owner}/settings/billing/usage?year={now.year}&month={now.month}',
+                  default=None)
+              if usage is None or 'usageItems' not in usage:
+                  return None, set()
+              acc, unknown = {}, set()
+              for item in usage['usageItems']:
+                  if item.get('product') != 'actions' or item.get('unitType') != 'Minutes':
+                      continue  # skips 'Actions storage', billed in GigabyteHours
+                  repo = item.get('repositoryName', '')
+                  if repo not in private:
+                      continue
+                  mult, known = multiplier(item.get('sku', ''))
+                  if not known:
+                      unknown.add(item.get('sku', ''))
+                  acc[repo] = acc.get(repo, 0.0) + float(item.get('quantity', 0)) * mult
+              return acc, unknown
+
+          def month_windows():
+              # The runs endpoint caps a single query at 1000 results and says
+              # nothing when it truncates. fleet-infra alone exceeds that in a
+              # month -- an unwindowed query returned 1000 where weekly windows
+              # returned 1337, silently losing a quarter of the month. Weekly
+              # windows keep every repo well under the cap.
+              start = now.replace(day=1).date()
+              out, cursor = [], start
+              while cursor <= now.date():
+                  end = min(cursor + timedelta(days=6), now.date())
+                  out.append(f'{cursor.isoformat()}..{end.isoformat()}')
+                  cursor = end + timedelta(days=1)
+              return out
+
+          def run_ids(repo):
+              ids = []
+              for window in month_windows():
+                  proc = subprocess.run(
+                      ['gh', 'api', '--paginate',
+                       f'/repos/{owner}/{repo}/actions/runs?per_page=100&created={window}',
+                       '--jq', '.workflow_runs[].id'],
+                      capture_output=True, text=True, check=False)
+                  if proc.returncode != 0:
+                      print(f'::warning::could not list runs for {repo} in {window}; '
+                            'this month is undercounted')
+                      continue
+                  ids.extend(x for x in proc.stdout.split() if x.strip())
+              return ids
+
+          def price_run(job_spec):
+              repo, run_id = job_spec
+              data = gh_json('api',
+                             f'/repos/{owner}/{repo}/actions/runs/{run_id}/jobs?per_page=100',
+                             default=None)
+              if data is None:
+                  return repo, 0.0
+              total = 0.0
+              for job in data.get('jobs', []):
+                  started, completed = job.get('started_at'), job.get('completed_at')
+                  if not started or not completed:
+                      continue
+                  begin = datetime.fromisoformat(started.replace('Z', '+00:00'))
+                  finish = datetime.fromisoformat(completed.replace('Z', '+00:00'))
+                  seconds = max(0.0, (finish - begin).total_seconds())
+                  if seconds <= 0:
+                      continue
+                  # Billing rounds each job up to a whole minute. Summing raw
+                  # durations is the mistake that makes a split pipeline look
+                  # cheap; this is the number that is actually charged.
+                  labels = ' '.join(job.get('labels') or [])
+                  mult, _ = multiplier(labels)
+                  total += math.ceil(seconds / 60) * mult
+              return repo, total
+
+          def from_actions_api():
+              # Fallback when billing is unreachable. Prices every run this month
+              # from the Actions API, which needs only actions:read.
+              #
+              # APPROXIMATE, and it does not bound the error in a known
+              # direction. Measured against billing on the same month: 3386 here
+              # against 3263 reported, about 4% high. An earlier version that
+              # let the runs endpoint truncate read 5% low instead, so the sign
+              # of the error depends on what is being missed or double counted
+              # -- re-run attempts are the obvious way to overcount, retention
+              # ageing the obvious way to undercount.
+              #
+              # Running slightly high is the safe direction for an alarm: it
+              # trips a little early rather than a little late. But do not quote
+              # this figure as fact. Fix the billing permission and the exact
+              # number comes back.
+              specs = []
+              for repo in sorted(private):
+                  ids = run_ids(repo)
+                  specs.extend((repo, rid) for rid in ids)
+              print(f'::notice::pricing {len(specs)} run(s) from the Actions API')
+              acc = {}
+              with ThreadPoolExecutor(max_workers=8) as pool:
+                  for repo, minutes in pool.map(price_run, specs):
+                      acc[repo] = acc.get(repo, 0.0) + minutes
+              return acc
+
+          per_repo, unknown_skus = from_billing()
+          source = 'billing API (exact)'
+          approximate = False
+
+          if per_repo is None:
+              print('::warning::could not read the org billing usage endpoint; '
+                    'falling back to pricing runs from the Actions API.')
+              print('::warning::A 403 "Resource not accessible by integration" means the App '
+                    'lacks the "Organization plan" (read) permission: grant it, accept the '
+                    'updated installation permissions, then set app-has-billing-permission '
+                    'true. Repo listing working while billing fails is exactly that case. '
+                    'Supplying BUDGET_TOKEN also works.')
+              per_repo = from_actions_api()
+              unknown_skus = set()
+              source = 'Actions API (lower bound)'
+              approximate = True
 
           for sku in sorted(unknown_skus):
               print(f'::warning::unrecognised Actions minute SKU {sku!r}, counted at 1x; '
@@ -207,17 +300,23 @@ name: 'Actions Budget Watchdog'
           pct = (used / allowance * 100) if allowance else 0.0
           top = sorted(per_repo.items(), key=lambda kv: -kv[1])[:10]
 
-          headline = (f'{used:.0f} of {allowance:.0f} included minutes used '
+          qualifier = 'about ' if approximate else ''
+          headline = (f'{qualifier}{used:.0f} of {allowance:.0f} included minutes used '
                       f'({pct:.0f}%) by private repos in {now:%B %Y}')
-          print(f'::notice::{headline}')
+          print(f'::notice::{headline} [source: {source}]')
 
           table = '\n'.join(f'| `{r}` | {m:.0f} |' for r, m in top) or '| _none_ | 0 |'
           body_detail = (
               f'| repo | minutes |\n| --- | --- |\n{table}\n\n'
-              f'_Month to date, {now:%Y-%m-%d}. Private repositories only; public-repo '
-              'usage is free and excluded. Minutes are weighted by runner '
-              'multiplier (macOS 10x, Windows 2x, Linux 1x), which is how the '
+              f'_Month to date, {now:%Y-%m-%d}. Source: {source}. Private repositories '
+              'only; public-repo usage is free and excluded. Minutes are weighted by '
+              'runner multiplier (macOS 10x, Windows 2x, Linux 1x), which is how the '
               'allowance is actually consumed._'
+              + ('\n\n_Billing was unreachable, so this is priced from the Actions API '
+                 'rather than read from billing. Treat it as **approximate**: measured '
+                 'against billing on the same month it ran about 4% high. Good enough to '
+                 'alarm on, not a figure to quote. Grant the App "Organization plan" '
+                 '(read) to restore the exact number._' if approximate else '')
           )
 
           summary = os.environ.get('GITHUB_STEP_SUMMARY')
