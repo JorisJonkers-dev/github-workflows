@@ -7,6 +7,21 @@
 * enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
 * fail Gradle warnings and deprecations while making JVM lint static-only by default
 
+## [0.18.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.17.0...v0.18.0) (2026-08-30)
+
+
+### Features
+
+* **budget:** price runs from the Actions API when billing is unreachable ([#132](https://github.com/JorisJonkers-dev/github-workflows/issues/132)) ([4d0f476](https://github.com/JorisJonkers-dev/github-workflows/commit/4d0f4764d8b5ad71f2bc1d6583ea4d5fb9ced4e2)), closes [#126](https://github.com/JorisJonkers-dev/github-workflows/issues/126)
+* **budget:** warn before the org runs out of Actions minutes ([#128](https://github.com/JorisJonkers-dev/github-workflows/issues/128)) ([3256457](https://github.com/JorisJonkers-dev/github-workflows/commit/325645792914d9cb1b70f5105fe5c9faaa431114)), closes [#126](https://github.com/JorisJonkers-dev/github-workflows/issues/126)
+
+
+### Bug Fixes
+
+* **budget:** make the billing permission opt-in so it degrades instead of dying ([#131](https://github.com/JorisJonkers-dev/github-workflows/issues/131)) ([12dd0fb](https://github.com/JorisJonkers-dev/github-workflows/commit/12dd0fb1c90a5e849c059db422bf4c2a472facf6)), closes [#126](https://github.com/JorisJonkers-dev/github-workflows/issues/126)
+* **budget:** refuse to report a percentage the watchdog cannot substantiate ([#133](https://github.com/JorisJonkers-dev/github-workflows/issues/133)) ([010c41c](https://github.com/JorisJonkers-dev/github-workflows/commit/010c41ce5319572a810de7ed5cd070103298cddc)), closes [#126](https://github.com/JorisJonkers-dev/github-workflows/issues/126)
+* **budget:** request the billing permission and say so when it is missing ([#130](https://github.com/JorisJonkers-dev/github-workflows/issues/130)) ([a7f77c0](https://github.com/JorisJonkers-dev/github-workflows/commit/a7f77c0576dcd6866bb05bb3aa007fae2481e73a)), closes [#126](https://github.com/JorisJonkers-dev/github-workflows/issues/126)
+
 ## [0.17.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.16.1...v0.17.0) (2026-08-29)
 
 
