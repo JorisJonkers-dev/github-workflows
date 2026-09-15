@@ -84,12 +84,12 @@ jobs:
 
     steps:
       # Checkout the service repository at the requested ref
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ inputs.ref }}
 
       # Checkout github-workflows at the workflow SHA so actions are in sync
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: JorisJonkers-dev/github-workflows
           ref: v0.18.0 # x-release-please-version
@@ -141,7 +141,7 @@ jobs:
 
       - name: Attest build provenance
         if: ${{ steps.publish.outputs.artifact-digest != '' }}
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ghcr.io/jorisjonkers-dev/${{ inputs.artifact-name }}
           subject-digest: ${{ steps.publish.outputs.artifact-digest }}
