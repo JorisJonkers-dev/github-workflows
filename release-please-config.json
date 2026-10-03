@@ -61,6 +61,10 @@
         {
           "type": "generic",
           "path": ".github/workflows/publish-api-clients.yml"
+        },
+        {
+          "type": "generic",
+          "path": ".github/workflows/publish-fragment.yml"
         }
       ]
     }
