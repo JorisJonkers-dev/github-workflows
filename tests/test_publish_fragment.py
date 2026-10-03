@@ -125,7 +125,10 @@ class Push(unittest.TestCase):
             self.bin / "oras",
             'echo "oras $*" >>"$CALLS"\n'
             'case "$1 $2" in\n'
-            '  "manifest fetch") [ -n "${LATEST:-}" ] || exit 1\n'
+            '  "manifest fetch")\n'
+            '    if [ -n "${LATEST_ERROR:-}" ]; then echo "$LATEST_ERROR" >&2; exit 1; fi\n'
+            '    if [ -z "${LATEST:-}" ]; then echo "Error: ghcr.io/x:latest: not found" >&2; exit 1; fi\n'
+            '    if [ "$LATEST" = unlabelled ]; then echo "{}"; exit 0; fi\n'
             '    printf \'{"annotations":{"org.opencontainers.image.version":"%s"}}\' "$LATEST" ;;\n'
             '  "push "*) printf \'%s\' "${DIGEST-sha256:feed}" ;;\n'
             '  "pull "*) cp -R "${PULLED:-$FRAGMENT}/." "$4" ;;\n'
@@ -186,6 +189,29 @@ class Push(unittest.TestCase):
                 self.assertEqual(run.returncode, 0, run.stderr)
                 push = next(c for c in self.calls("oras") if c.startswith("oras push"))
                 self.assertIn(f"intent-notes:{expected}", push + " ")
+
+    def test_a_latest_that_cannot_be_read_is_not_taken_for_a_first_publish(self):
+        cases = {
+            "a registry that does not answer": {"LATEST_ERROR": "Error: dial tcp: i/o timeout"},
+            "a registry that refuses the token": {"LATEST_ERROR": "Error: unauthorized: authentication required"},
+            "a latest with no release on it": {"LATEST": "unlabelled"},
+        }
+        for name, overrides in cases.items():
+            with self.subTest(name):
+                self.log.write_text("")
+                run = self.run_push(**overrides)
+                self.assertEqual(run.returncode, 1)
+                self.assertIn("publish-fragment:", run.stderr)
+                self.assertFalse([c for c in self.calls("oras") if c.startswith("oras push")])
+                self.assertFalse(self.calls("cosign"))
+
+    def test_what_is_not_a_release_or_a_name_is_never_pushed(self):
+        for overrides in ({"VERSION": "1.4.0,latest"}, {"VERSION": "latest"}, {"PROJECT": "../other"}, {"PROJECT": "Notes"}):
+            with self.subTest(str(overrides)):
+                self.log.write_text("")
+                run = self.run_push(**overrides)
+                self.assertEqual(run.returncode, 1)
+                self.assertEqual(self.log.read_text(), "")
 
     def test_nothing_is_reported_published_unless_it_reads_back_and_verifies(self):
         other = self.dir / "other"

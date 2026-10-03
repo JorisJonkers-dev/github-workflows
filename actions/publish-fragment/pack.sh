@@ -41,10 +41,13 @@ version="${VERSION#v}"
 # The project file and what is read with it: env files, Assets. A directory is
 # read as every file below it.
 read_together=("$(absolute "$PROJECT_FILE")")
+# Split on spaces, and never expanded as a pattern.
+set -f
 for path in $VALIDATE_WITH; do
   [ -e "$path" ] || fail "validate-with names ${path}, which does not exist"
   read_together+=("$(absolute "$path")")
 done
+set +f
 
 echo "::group::Validate"
 deploy_kit validate "${read_together[@]}"

@@ -9,18 +9,26 @@ set -euo pipefail
   exit 0
 }
 
-# The report's first line is its marker.
+# The report's first line is its marker. It names a Project, and nothing else:
+# it selects which comment is replaced, so it is never taken as written.
 marker="$(head -n 1 "$REPORT")"
-case "$marker" in
-  "<!-- render-diff:"*" -->") ;;
-  *)
-    echo "render-diff: the report carries no marker" >&2
-    exit 1
-    ;;
-esac
+[[ "$marker" =~ ^\<!--\ render-diff:[a-z0-9]([a-z0-9-]*[a-z0-9])?\ --\>$ ]] || {
+  echo "render-diff: the report carries no marker" >&2
+  exit 1
+}
+[[ "$PULL_REQUEST" =~ ^[0-9]+$ ]] || {
+  echo "render-diff: '${PULL_REQUEST}' is not a pull request number" >&2
+  exit 1
+}
 
-existing="$(gh api --paginate "repos/${REPOSITORY}/issues/${PULL_REQUEST}/comments" \
-  --jq ".[] | select(.body | startswith(\"${marker}\")) | .id" | head -n 1)"
+# Only a comment this action wrote is ever replaced: the marker is handed to jq
+# as a value, and the comment must open with it.
+existing="$(gh api --paginate "repos/${REPOSITORY}/issues/${PULL_REQUEST}/comments" |
+  jq -r --arg marker "$marker" '.[] | select(.body | startswith($marker + "\n")) | .id' | head -n 1)"
+[[ "$existing" =~ ^[0-9]*$ ]] || {
+  echo "render-diff: the comment listing returned an id that is not one" >&2
+  exit 1
+}
 
 if [ -n "$existing" ]; then
   gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${existing}" -F "body=@${REPORT}" >/dev/null

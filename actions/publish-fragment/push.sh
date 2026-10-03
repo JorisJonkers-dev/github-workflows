@@ -18,9 +18,23 @@ fail() {
 repository="ghcr.io/$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')/intent-${PROJECT}"
 inputs_sha="$(yq '.spec.inputsSha' "$FRAGMENT/fragment.yml")"
 
-# The release `latest` names now, if any. Absent on a Project's first publish.
-current="$(oras manifest fetch "${repository}:latest" 2>/dev/null |
-  jq -r '.annotations["org.opencontainers.image.version"] // ""' || true)"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "version '${VERSION}' is not a release"
+[[ "$PROJECT" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || fail "project '${PROJECT}' is not a name"
+
+# The release `latest` names now. Only a registry that says there is no such
+# manifest means a first publish. Any other failure to read it stops here: an
+# answer that could not be read is not "nothing published yet", and treating
+# it so would let a re-run of an old release move `latest` back.
+current=""
+if manifest="$(oras manifest fetch "${repository}:latest" 2>"${TMPDIR:-/tmp}/latest.err")"; then
+  current="$(jq -r '.annotations["org.opencontainers.image.version"] // ""' <<<"$manifest")"
+  [[ "$current" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+    fail "${repository}:latest carries no release version, so it cannot be compared with ${VERSION}"
+elif ! grep -qiE 'not found|name unknown|manifest unknown' "${TMPDIR:-/tmp}/latest.err"; then
+  cat "${TMPDIR:-/tmp}/latest.err" >&2
+  fail "could not read ${repository}:latest"
+fi
+
 tags="$VERSION"
 if [ -z "$current" ] || [ "$(printf '%s\n%s\n' "$current" "$VERSION" | sort -V | tail -n 1)" = "$VERSION" ]; then
   tags="${VERSION},latest"

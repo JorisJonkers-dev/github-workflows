@@ -13,6 +13,25 @@ TOOLKIT_DIRECTORY="${TOOLKIT_DIRECTORY:-.}"
 DEPLOY_KIT_COMMAND="${DEPLOY_KIT_COMMAND:-npx --no-install deploy-kit}"
 # A comment holds 65536 characters; the diff gets most of them.
 MAX_DIFF_BYTES="${MAX_DIFF_BYTES:-55000}"
+[[ "$MAX_DIFF_BYTES" =~ ^[0-9]+$ ]] || {
+  echo "render-diff: MAX_DIFF_BYTES is not a number" >&2
+  exit 1
+}
+
+# fenced <language> <file>: the file inside a code fence it cannot close. What
+# is shown comes from a pull request's own files, so the fence is one backtick
+# longer than the longest run of backticks in it: nothing in the file can end
+# the block and continue as Markdown in a comment this action posts.
+fenced() {
+  local language="$1" file="$2" longest fence
+  longest="$({ grep -o '`\{3,\}' "$file" || true; } | awk '{ if (length($0) > n) n = length($0) } END { print n + 0 }')"
+  fence="$(printf '%*s' "$((longest > 2 ? longest + 1 : 3))" '' | tr ' ' '`')"
+  printf '%s%s\n' "$fence" "$language"
+  cat "$file"
+  # A file that does not end in a newline must not swallow the closing fence.
+  [ -z "$(tail -c 1 "$file")" ] || echo
+  printf '%s\n' "$fence"
+}
 
 fail() {
   echo "render-diff: $*" >&2
@@ -64,6 +83,12 @@ compose() {
       --repository "$REPOSITORY" --source-sha "$sha" --version 0.0.0 --out "$fragment" \
       >"$work/$side/publish.log" 2>&1 || return 1
     project="$(yq '.spec.project' "$fragment/fragment.yml")"
+    # The name comes from a pull request's file and is about to be a path, a
+    # pattern and a comment's marker, so it is held to a name's shape first.
+    [[ "$project" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || {
+      echo "the project file names project '${project}', which is not a name" >"$work/$side/publish.log"
+      return 1
+    }
     rm -rf "$work/$side/fragments/$project"
     mv "$fragment" "$work/$side/fragments/$project"
     # A fragment is read beside the ref its pull resolved. This one was never
@@ -111,10 +136,11 @@ if [ "$head_status" -ne 0 ] || [ -n "$isolated" ]; then
   {
     echo "**This change does not compose.** Published as it is, composition would refuse \`${project}\` and keep it at its last composed release."
     echo
-    echo '```'
-    if [ -n "$isolated" ]; then echo "$isolated"; fi
-    head -c "$MAX_DIFF_BYTES" "$work/head/compose.log"
-    echo '```'
+    {
+      if [ -n "$isolated" ]; then echo "$isolated"; fi
+      head -c "$MAX_DIFF_BYTES" "$work/head/compose.log"
+    } >"$work/refusal.txt"
+    fenced "" "$work/refusal.txt"
   } >>"$REPORT"
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then cat "$REPORT" >>"$GITHUB_STEP_SUMMARY"; fi
   if [ -n "${GITHUB_OUTPUT:-}" ]; then echo "changed=true" >>"$GITHUB_OUTPUT"; fi
@@ -143,13 +169,11 @@ else
   {
     echo "${files} rendered file(s) change. This is what Flux would apply once the release is published and composed."
     echo
-    echo '```diff'
-    head -c "$MAX_DIFF_BYTES" "$work/render.diff"
+    head -c "$MAX_DIFF_BYTES" "$work/render.diff" >"$work/shown.diff"
     if [ "$(wc -c <"$work/render.diff")" -gt "$MAX_DIFF_BYTES" ]; then
-      echo
-      echo "... diff cut at ${MAX_DIFF_BYTES} bytes; run the composition locally for the rest"
+      printf '\n... diff cut at %s bytes; run the composition locally for the rest\n' "$MAX_DIFF_BYTES" >>"$work/shown.diff"
     fi
-    echo '```'
+    fenced diff "$work/shown.diff"
   } >>"$REPORT"
 fi
 

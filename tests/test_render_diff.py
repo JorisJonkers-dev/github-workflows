@@ -5,6 +5,7 @@ render of a project is its project file's `memory:` lines, and a stand-in gh.
 """
 from __future__ import annotations
 
+import json
 import os
 import stat
 import subprocess
@@ -128,6 +129,37 @@ class RenderDiff(unittest.TestCase):
         self.assertEqual(run.returncode, 1)
         self.assertIn("E_PLATFORM the Platform document is refused", self.report.read_text())
 
+    def test_what_a_pull_request_renders_cannot_close_the_code_block(self):
+        project_file(self.dir / "head", "memory: 256Mi\nmemory: ```\nmemory: `````\n@someone look\n")
+        run = self.run_diff()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        lines = self.report.read_text().splitlines()
+        opening = next(i for i, line in enumerate(lines) if line.endswith("diff") and line.startswith("```"))
+        fence = lines[opening][: -len("diff")]
+        self.assertEqual(fence, "`" * 6)
+        # The block closes once, on the last line, with the fence that opened it.
+        self.assertEqual(lines[-1], fence)
+        self.assertEqual([i for i, line in enumerate(lines) if line == fence], [len(lines) - 1])
+
+    def test_a_refusal_cannot_close_the_code_block_either(self):
+        project_file(self.dir / "head", "memory: 256Mi\n# CRASH\n")
+        stub = self.dir / "noisy"
+        stub.write_text(f"#!/usr/bin/env bash\n\"{STUB}\" \"$@\" || {{ echo '```'; echo '# injected'; exit 1; }}\n")
+        stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+        run = self.run_diff(DEPLOY_KIT_COMMAND=str(stub))
+        self.assertEqual(run.returncode, 1)
+        lines = self.report.read_text().splitlines()
+        self.assertEqual(lines[-1], "````")
+        self.assertEqual(lines.count("````"), 2)
+
+    def test_a_project_name_that_is_not_one_is_never_used_as_a_path(self):
+        (self.dir / "head" / "deploy" / "notes.project.yml").write_text("project: Not_A-Name\nmemory: 1Mi\n")
+        run = self.run_diff()
+        self.assertEqual(run.returncode, 1)
+        self.assertIn("could not be packed", run.stderr)
+        self.assertIn("is not a name", run.stderr)
+        self.assertFalse(self.report.exists())
+
     def test_a_long_diff_is_cut_and_says_so(self):
         project_file(self.dir / "head", "".join(f"memory: {n}Mi\n" for n in range(400)))
         run = self.run_diff(MAX_DIFF_BYTES="300")
@@ -172,7 +204,7 @@ class Comment(unittest.TestCase):
         gh.write_text(
             "#!/usr/bin/env bash\n"
             'echo "$*" >>"$GH_LOG"\n'
-            'case "$*" in *--paginate*) printf \'%s\' "${EXISTING:-}" ;; esac\n'
+            'case "$*" in *--paginate*) printf \'%s\' "${EXISTING:-[]}" ;; esac\n'
         )
         gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
 
@@ -192,22 +224,39 @@ class Comment(unittest.TestCase):
         run = self.run_comment()
         self.assertEqual(run.returncode, 0, run.stderr)
         calls = self.log.read_text().splitlines()
-        self.assertIn('startswith("<!-- render-diff:notes -->")', calls[0])
+        self.assertEqual(calls[0], "api --paginate repos/JorisJonkers-dev/notes/issues/12/comments")
         self.assertEqual(
             calls[1], f"api --method POST repos/JorisJonkers-dev/notes/issues/12/comments -F body=@{self.report}"
         )
 
     def test_a_later_report_replaces_the_projects_comment(self):
-        run = self.run_comment(EXISTING="991\n")
+        comments = [
+            {"id": 7, "body": "I quote it: <!-- render-diff:notes -->\nmine"},
+            {"id": 8, "body": "<!-- render-diff:notes-api -->\nanother Project's"},
+            {"id": 991, "body": "<!-- render-diff:notes -->\n### Render diff"},
+        ]
+        run = self.run_comment(EXISTING=json.dumps(comments))
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(
             self.log.read_text().splitlines()[1],
             f"api --method PATCH repos/JorisJonkers-dev/notes/issues/comments/991 -F body=@{self.report}",
         )
 
-    def test_a_report_without_its_marker_is_not_posted(self):
-        self.report.write_text("### Render diff\n")
-        run = self.run_comment()
+    def test_a_report_without_a_plain_marker_is_not_posted(self):
+        for first_line in (
+            "### Render diff",
+            '<!-- render-diff:notes") or true or startswith(" -->',
+            "<!-- render-diff:../x -->",
+            "<!-- render-diff: -->",
+        ):
+            with self.subTest(first_line):
+                self.report.write_text(first_line + "\nbody\n")
+                run = self.run_comment()
+                self.assertEqual(run.returncode, 1)
+                self.assertFalse(self.log.exists())
+
+    def test_a_pull_request_that_is_not_a_number_is_refused(self):
+        run = self.run_comment(PULL_REQUEST="12/../../issues/3")
         self.assertEqual(run.returncode, 1)
         self.assertFalse(self.log.exists())
 
