@@ -21,10 +21,14 @@ marker="$(head -n 1 "$REPORT")"
   exit 1
 }
 
-# Only a comment this action wrote is ever replaced: the marker is handed to jq
-# as a value, and the comment must open with it.
+# Only a comment this action wrote is ever replaced. The marker alone does not
+# say that: anyone can open a comment with it, and a token that may comment may
+# also edit theirs. So the comment must open with the marker AND be written by
+# the identity this token comments as.
+AUTHOR="${COMMENT_AUTHOR:-github-actions[bot]}"
 existing="$(gh api --paginate "repos/${REPOSITORY}/issues/${PULL_REQUEST}/comments" |
-  jq -r --arg marker "$marker" '.[] | select(.body | startswith($marker + "\n")) | .id' | head -n 1)"
+  jq -r --arg marker "$marker" --arg author "$AUTHOR" \
+    '.[] | select(.user.login == $author and (.body | startswith($marker + "\n"))) | .id' | head -n 1)"
 [[ "$existing" =~ ^[0-9]*$ ]] || {
   echo "render-diff: the comment listing returned an id that is not one" >&2
   exit 1

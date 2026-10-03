@@ -45,6 +45,10 @@ inputs:
     description: A token that may comment on the pull request.
     required: false
     default: ${{ github.token }}
+  comment-author:
+    description: The login the token comments as. Only that login's earlier comment is replaced.
+    required: false
+    default: github-actions[bot]
 
 outputs:
   changed:
@@ -74,6 +78,6 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
         REPOSITORY: ${{ github.repository }}
         PULL_REQUEST: ${{ github.event.pull_request.number }}
-        PROJECT: ${{ steps.diff.outputs.project }}
+        COMMENT_AUTHOR: ${{ inputs.comment-author }}
         REPORT: ${{ runner.temp }}/render-diff.md
       run: '"${GITHUB_ACTION_PATH}/comment.sh"'

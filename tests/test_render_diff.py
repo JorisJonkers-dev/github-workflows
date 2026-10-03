@@ -231,9 +231,10 @@ class Comment(unittest.TestCase):
 
     def test_a_later_report_replaces_the_projects_comment(self):
         comments = [
-            {"id": 7, "body": "I quote it: <!-- render-diff:notes -->\nmine"},
-            {"id": 8, "body": "<!-- render-diff:notes-api -->\nanother Project's"},
-            {"id": 991, "body": "<!-- render-diff:notes -->\n### Render diff"},
+            {"id": 6, "user": {"login": "someone"}, "body": "<!-- render-diff:notes -->\nopened with the marker by hand"},
+            {"id": 7, "user": {"login": "github-actions[bot]"}, "body": "I quote it: <!-- render-diff:notes -->\nmine"},
+            {"id": 8, "user": {"login": "github-actions[bot]"}, "body": "<!-- render-diff:notes-api -->\nanother Project's"},
+            {"id": 991, "user": {"login": "github-actions[bot]"}, "body": "<!-- render-diff:notes -->\n### Render diff"},
         ]
         run = self.run_comment(EXISTING=json.dumps(comments))
         self.assertEqual(run.returncode, 0, run.stderr)
@@ -241,6 +242,18 @@ class Comment(unittest.TestCase):
             self.log.read_text().splitlines()[1],
             f"api --method PATCH repos/JorisJonkers-dev/notes/issues/comments/991 -F body=@{self.report}",
         )
+
+    def test_someone_elses_comment_is_never_replaced(self):
+        theirs = [{"id": 6, "user": {"login": "someone"}, "body": "<!-- render-diff:notes -->\nby hand"}]
+        run = self.run_comment(EXISTING=json.dumps(theirs))
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("--method POST", self.log.read_text().splitlines()[1])
+
+        mine = [{"id": 44, "user": {"login": "estate-bot[bot]"}, "body": "<!-- render-diff:notes -->\nearlier"}]
+        self.log.unlink()
+        run = self.run_comment(EXISTING=json.dumps(mine), COMMENT_AUTHOR="estate-bot[bot]")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("--method PATCH repos/JorisJonkers-dev/notes/issues/comments/44", self.log.read_text())
 
     def test_a_report_without_a_plain_marker_is_not_posted(self):
         for first_line in (

@@ -24,7 +24,7 @@ MAX_DIFF_BYTES="${MAX_DIFF_BYTES:-55000}"
 # the block and continue as Markdown in a comment this action posts.
 fenced() {
   local language="$1" file="$2" longest fence
-  longest="$({ grep -o '`\{3,\}' "$file" || true; } | awk '{ if (length($0) > n) n = length($0) } END { print n + 0 }')"
+  longest="$({ grep -a -o '`\{3,\}' "$file" || true; } | awk '{ if (length($0) > n) n = length($0) } END { print n + 0 }')"
   fence="$(printf '%*s' "$((longest > 2 ? longest + 1 : 3))" '' | tr ' ' '`')"
   printf '%s%s\n' "$fence" "$language"
   cat "$file"
