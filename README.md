@@ -23,6 +23,7 @@ should call released tags instead of branches.
 | `actions/api-client-publish` | Generate and publish TypeScript, Java, and Kotlin API clients. |
 | `actions/deploy-bundle` | Validate and pack a first-party `deploy/` directory as an OCI bundle. |
 | `actions/deploy-sources-render` | Resolve deployment sources, compile Flux output, and emit image tags. |
+| `actions/render-diff` | Compose the estate with a pull request's project file and comment the Project's render diff (deploy-kit). |
 
 ## Reusable Workflows
 
@@ -44,6 +45,7 @@ should call released tags instead of branches.
 | `production-canary.yml` | Run caller-owned production smoke checks. |
 | `deploy-bundle.yml` | Validate first-party deploy bundles and optionally publish them to GHCR. |
 | `deploy-sources-render.yml` | Render deployment sources and expose image tags for downstream tests. |
+| `publish-fragment.yml` | Validate, pack, sign and push a project file's Intent Fragment for a release, then start composition (deploy-kit). |
 | `repository-hygiene-guard.yml` | Block reintroduction of planning and scratch artifacts. |
 | `add-to-project.yml` | Add opened/reopened issues and pull requests to the org Project. |
 

@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# A stand-in for the deploy-kit command: it records how it was called and
+# writes files of the shapes the real command writes, so the scripts around it
+# can be tested where the real one is not installed.
+set -euo pipefail
+echo "$*" >>"${STUB_LOG:-/dev/null}"
+
+command="${1:-}"
+shift || true
+case "$command" in
+  validate)
+    if [ -n "${STUB_REFUSE_VALIDATE:-}" ]; then
+      echo "E_STUB refused" >&2
+      exit 1
+    fi
+    echo "accepted ($# read)"
+    ;;
+  publish)
+    file="$1"
+    shift
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --out) out="$2" ;;
+        --version) version="$2" ;;
+      esac
+      shift 2
+    done
+    if [ -n "${STUB_PACK_NOTHING:-}" ]; then exit 0; fi
+    mkdir -p "$out"
+    cp "$file" "$out/"
+    project="$(sed -n 's/^project: *\([A-Za-z0-9_-]*\).*/\1/p' "$file")"
+    printf 'spec:\n  project: %s\n  version: %s\n  inputsSha: abc123\n' "$project" "$version" >"$out/fragment.yml"
+    echo "$project $version packed in $out"
+    ;;
+  compose)
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --fragments) fragments="$2" ;;
+        --out) out="$2" ;;
+      esac
+      shift 2
+    done
+    isolated='{}'
+    for fragment in "$fragments"/*/; do
+      project="$(basename "$fragment")"
+      mkdir -p "$out/artifacts/$project"
+      # The render of a project is its project file's `memory:` lines.
+      grep -h 'memory:' "$fragment"/*.project.yml >"$out/artifacts/$project/workload.yaml" || true
+      if grep -q 'REFUSE' "$fragment"/*.project.yml; then
+        isolated="{\"$project\":{\"codes\":[\"E_STUB\"]}}"
+      fi
+      if grep -q 'CRASH' "$fragment"/*.project.yml; then
+        echo "E_PLATFORM the Platform document is refused" >&2
+        exit 1
+      fi
+    done
+    printf '{"spec":{"isolated":%s}}\n' "$isolated" >"$out/lock.json"
+    echo "composed"
+    ;;
+  *)
+    echo "usage" >&2
+    exit 2
+    ;;
+esac

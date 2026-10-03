@@ -1,0 +1,83 @@
+# Posts what a pull request's project-file change does to the Project's render,
+# as one comment that is updated in place.
+#
+# It composes the estate twice, once with the base branch's project file and
+# once with the pull request's, and diffs the Project's rendered artifact. Both
+# compositions are `deploy-kit compose`; this action only swaps one fragment and
+# diffs two directories.
+#
+# The estate's other inputs are handed in, already pulled, laid out as
+# composition's own pull step leaves them
+# (deploy-kit spec/v1/examples/workflows/compose.yml):
+#
+#   <estate-inputs>/platform/            the Platform document's fragment, with its `ref`
+#   <estate-inputs>/fragments/<project>/ every participant's fragment, with its `ref`
+#   <estate-inputs>/cluster-state.yml
+#   <estate-inputs>/held/                optional
+#   <estate-inputs>/pins.json            optional
+#   <estate-inputs>/previous/lock.json   optional, with previous/COMMIT
+name: Render Diff
+description: Compose the estate with a pull request's project file and comment the Project's render diff.
+
+inputs:
+  project-file:
+    description: The project file, relative to the repository root. The same path is read in both checkouts.
+    required: true
+  estate-inputs:
+    description: The directory holding the estate's pulled composition inputs.
+    required: true
+  base-directory:
+    description: A checkout of the pull request's base commit.
+    required: true
+  head-directory:
+    description: A checkout of the pull request's head commit.
+    required: false
+    default: "."
+  toolkit-directory:
+    description: The directory whose lockfile pins @jorisjonkers-dev/deploy-kit, already installed with npm ci.
+    required: false
+    default: "."
+  comment:
+    description: Post the diff on the pull request. Off, the diff is only written to the step summary.
+    required: false
+    default: "true"
+  github-token:
+    description: A token that may comment on the pull request.
+    required: false
+    default: ${{ github.token }}
+  comment-author:
+    description: The login the token comments as. Only that login's earlier comment is replaced.
+    required: false
+    default: github-actions[bot]
+
+outputs:
+  changed:
+    description: Whether the Project's render differs between base and head.
+    value: ${{ steps.diff.outputs.changed }}
+
+runs:
+  using: composite
+  steps:
+    - id: diff
+      shell: bash
+      env:
+        PROJECT_FILE: ${{ inputs.project-file }}
+        ESTATE_INPUTS: ${{ inputs.estate-inputs }}
+        BASE_DIRECTORY: ${{ inputs.base-directory }}
+        HEAD_DIRECTORY: ${{ inputs.head-directory }}
+        TOOLKIT_DIRECTORY: ${{ inputs.toolkit-directory }}
+        REPOSITORY: ${{ github.repository }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+        REPORT: ${{ runner.temp }}/render-diff.md
+      run: '"${GITHUB_ACTION_PATH}/run.sh"'
+
+    - if: ${{ always() && inputs.comment == 'true' && github.event.pull_request.number }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPOSITORY: ${{ github.repository }}
+        PULL_REQUEST: ${{ github.event.pull_request.number }}
+        COMMENT_AUTHOR: ${{ inputs.comment-author }}
+        REPORT: ${{ runner.temp }}/render-diff.md
+      run: '"${GITHUB_ACTION_PATH}/comment.sh"'
