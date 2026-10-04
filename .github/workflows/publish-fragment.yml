@@ -2,7 +2,8 @@
 # composition (deploy-kit spec/v1/40-composition.md, spec/v1/55-delivery.md).
 #
 #   release tag -> images built -> this workflow:
-#     validate -> pack with the release's version -> push -> sign keyless
+#     validate -> pack with the release's version and the project's share of
+#     the images lock -> push -> sign keyless
 #     -> read back and verify -> dispatch composition in the Estate repository
 #
 # Call it once per project file, after the release's images exist. A merge that
@@ -45,6 +46,16 @@ on:
           Name of an uploaded artifact holding migration-proof.yml, written by
           JorisJonkers-dev/liquibase-runner's migration-proof action earlier in the
           caller's run. It lands beside the project file before the fragment is packed.
+        required: false
+        type: string
+        default: ""
+      images-lock-artifact:
+        description: >-
+          Name of an uploaded artifact holding images.lock.yml: every image this
+          release's build pushed, by digest, with the user it runs as. The
+          project's share of it is packed into the fragment. Left empty, the
+          fragment carries no share and the Platform document's lock must hold
+          the project's images.
         required: false
         type: string
         default: ""
@@ -154,9 +165,19 @@ jobs:
           }
           cp .migration-proof/migration-proof.yml "$(dirname "$PROJECT_FILE")/migration-proof.yml"
 
+      - name: Fetch the images lock
+        if: ${{ inputs.images-lock-artifact != '' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.images-lock-artifact }}
+          path: ${{ runner.temp }}/images-lock
+
       - name: Validate and pack
         id: pack
         env:
+          # The lock stays outside the checkout: only the project's share of it
+          # goes into the fragment, never the file itself.
+          IMAGES_LOCK: ${{ inputs.images-lock-artifact != '' && format('{0}/images-lock/images.lock.yml', runner.temp) || '' }}
           PROJECT_FILE: ${{ inputs.project-file }}
           VALIDATE_WITH: ${{ inputs.validate-with }}
           VERSION: ${{ inputs.version }}

@@ -79,6 +79,26 @@ class Pack(unittest.TestCase):
             (self.dir / "output").read_text(), "project=notes\nversion=1.4.0\ninputs-sha=abc123\n"
         )
 
+    def test_the_images_lock_is_handed_to_the_command_only_when_there_is_one(self):
+        run = self.run_pack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn("--images-lock", self.log.read_text())
+
+        lock = self.dir / "built" / "images.lock.yml"
+        lock.parent.mkdir()
+        lock.write_text("kind: ImagesLock\n")
+        self.log.write_text("")
+        run = self.run_pack(IMAGES_LOCK="built/images.lock.yml")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        publish = self.log.read_text().splitlines()[1]
+        self.assertIn(f"--version 1.4.0 --images-lock {lock} --out {self.dir}/fragment", publish)
+
+    def test_a_lock_that_is_named_and_not_there_packs_nothing(self):
+        run = self.run_pack(IMAGES_LOCK="built/images.lock.yml")
+        self.assertEqual(run.returncode, 1)
+        self.assertIn("no images lock at built/images.lock.yml", run.stderr)
+        self.assertEqual(self.log.read_text() if self.log.exists() else "", "")
+
     def test_a_refused_project_file_packs_nothing(self):
         run = self.run_pack(STUB_REFUSE_VALIDATE="1")
         self.assertEqual(run.returncode, 1)
@@ -272,6 +292,15 @@ class Workflow(unittest.TestCase):
     def test_every_third_party_action_is_pinned_to_a_commit(self):
         for uses in re.findall(r"uses: (\S+)", self.text):
             self.assertRegex(uses, r"@[0-9a-f]{40}$", uses)
+
+    def test_the_lock_is_fetched_outside_the_checkout_and_only_when_named(self):
+        self.assertIn("if: ${{ inputs.images-lock-artifact != '' }}", self.text)
+        self.assertIn("path: ${{ runner.temp }}/images-lock", self.text)
+        self.assertIn(
+            "IMAGES_LOCK: ${{ inputs.images-lock-artifact != '' && "
+            "format('{0}/images-lock/images.lock.yml', runner.temp) || '' }}",
+            self.text,
+        )
 
     def test_composition_is_started_with_the_dispatch_app_only(self):
         self.assertIn("app-id: ${{ vars.ESTATE_DISPATCH_APP_ID }}", self.text)

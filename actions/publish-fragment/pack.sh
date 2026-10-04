@@ -11,6 +11,7 @@ set -euo pipefail
 
 : "${PROJECT_FILE:?}" "${VERSION:?}" "${SOURCE_SHA:?}" "${REPOSITORY:?}" "${OUT:?}"
 VALIDATE_WITH="${VALIDATE_WITH:-}"
+IMAGES_LOCK="${IMAGES_LOCK:-}"
 TOOLKIT_DIRECTORY="${TOOLKIT_DIRECTORY:-.}"
 DEPLOY_KIT_COMMAND="${DEPLOY_KIT_COMMAND:-npx --no-install deploy-kit}"
 
@@ -37,6 +38,13 @@ version="${VERSION#v}"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "version '${VERSION}' is not a release, vX.Y.Z"
 [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "source-sha '${SOURCE_SHA}' is not a commit"
 [ -f "$PROJECT_FILE" ] || fail "no project file at ${PROJECT_FILE}"
+# The lock the release's build wrote. The command packs the project's share of
+# it and refuses an alias it does not hold.
+share=()
+if [ -n "$IMAGES_LOCK" ]; then
+  [ -f "$IMAGES_LOCK" ] || fail "no images lock at ${IMAGES_LOCK}"
+  share=(--images-lock "$(absolute "$IMAGES_LOCK")")
+fi
 
 # The project file and what is read with it: env files, Assets. A directory is
 # read as every file below it.
@@ -60,6 +68,7 @@ deploy_kit publish "$(absolute "$PROJECT_FILE")" \
   --repository "$REPOSITORY" \
   --source-sha "$SOURCE_SHA" \
   --version "$version" \
+  ${share[@]+"${share[@]}"} \
   --out "$out"
 [ -f "$out/fragment.yml" ] || fail "the command packed no fragment.yml"
 
