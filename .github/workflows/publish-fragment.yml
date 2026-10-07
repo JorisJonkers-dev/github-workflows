@@ -184,6 +184,9 @@ jobs:
       - uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2.0.2
         with:
           version: 1.3.4
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+        with:
+          cosign-release: v2.6.1
       - name: Pull the fragments the project file is validated beside
         id: beside
         if: ${{ inputs.validate-with-fragments != '' }}
@@ -194,14 +197,23 @@ jobs:
           OUT: ${{ runner.temp }}/beside
         run: |
           echo "$GITHUB_TOKEN" | oras login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          echo "$GITHUB_TOKEN" | cosign login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           owner="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
           paths=""
           for project in $PROJECTS; do
             ref="ghcr.io/${owner}/intent-${project}:latest"
-            oras pull "$ref" --output "${OUT}/${project}" \
+            digest="$(oras resolve "$ref")" \
               || { echo "::error::${ref} is not published, and the project file is validated beside it"; exit 1; }
+            # Read only what this workflow published and signed, by digest, so
+            # a fragment pushed by anything else cannot change what is accepted.
+            cosign verify "${ref%:latest}@${digest}" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              --certificate-identity-regexp '^https://github\.com/JorisJonkers-dev/github-workflows/\.github/workflows/publish-fragment\.yml@' \
+              >/dev/null \
+              || { echo "::error::${ref%:latest}@${digest} is not signed by publish-fragment"; exit 1; }
+            oras pull "${ref%:latest}@${digest}" --output "${OUT}/${project}"
             paths="${paths} ${OUT}/${project}"
-            echo "validating beside ${ref}"
+            echo "validating beside ${ref%:latest}@${digest}"
           done
           echo "paths=${paths# }" >> "$GITHUB_OUTPUT"
       - name: Validate and pack
@@ -219,10 +231,6 @@ jobs:
           OUT: ${{ runner.temp }}/fragment
         run: bash .github-workflows/actions/publish-fragment/pack.sh
 
-
-      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
-        with:
-          cosign-release: v2.6.1
 
       - name: Push, sign and read back
         id: push

@@ -306,6 +306,15 @@ class Workflow(unittest.TestCase):
         self.assertIn("if: ${{ inputs.validate-with-fragments != '' }}", self.text)
         self.assertIn("OUT: ${{ runner.temp }}/beside", self.text)
         self.assertIn('ref="ghcr.io/${owner}/intent-${project}:latest"', self.text)
+        # Only a fragment publish-fragment signed is read, and by digest.
+        step = self.text.split("- name: Pull the fragments the project file is validated beside", 1)[1].split("- name:", 1)[0]
+        self.assertIn('cosign verify "${ref%:latest}@${digest}"', step)
+        self.assertIn('oras pull "${ref%:latest}@${digest}"', step)
+        self.assertLess(step.index("cosign verify"), step.index("oras pull"))
+        self.assertLess(
+            self.text.index("sigstore/cosign-installer@"),
+            self.text.index("- name: Pull the fragments the project file is validated beside"),
+        )
         self.assertIn(
             "VALIDATE_WITH: ${{ inputs.validate-with }} ${{ steps.beside.outputs.paths }}",
             self.text,
