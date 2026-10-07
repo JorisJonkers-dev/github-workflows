@@ -206,11 +206,17 @@ jobs:
               || { echo "::error::${ref} is not published, and the project file is validated beside it"; exit 1; }
             # Read only what this workflow published and signed, by digest, so
             # a fragment pushed by anything else cannot change what is accepted.
-            cosign verify "${ref%:latest}@${digest}" \
+            signatures="$(cosign verify "${ref%:latest}@${digest}" \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-              --certificate-identity-regexp '^https://github\.com/JorisJonkers-dev/github-workflows/\.github/workflows/publish-fragment\.yml@' \
-              >/dev/null \
+              --certificate-identity-regexp '^https://github\.com/JorisJonkers-dev/github-workflows/\.github/workflows/publish-fragment\.yml@')" \
               || { echo "::error::${ref%:latest}@${digest} is not signed by publish-fragment"; exit 1; }
+            # publish-fragment is public, so a repository of any owner can call
+            # it and sign with a matching identity; the certificate also names
+            # the calling repository, and only this owner's is accepted.
+            printf '%s' "$signatures" | jq -e --arg owner "$owner" \
+              '[.[].optional.githubWorkflowRepository // "" | ascii_downcase | startswith($owner + "/")] | any' \
+              >/dev/null \
+              || { echo "::error::${ref%:latest}@${digest} is not signed from a repository of ${OWNER}"; exit 1; }
             oras pull "${ref%:latest}@${digest}" --output "${OUT}/${project}"
             paths="${paths} ${OUT}/${project}"
             echo "validating beside ${ref%:latest}@${digest}"
