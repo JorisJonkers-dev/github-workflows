@@ -311,6 +311,11 @@ class Workflow(unittest.TestCase):
         self.assertIn('cosign verify "${ref%:latest}@${digest}"', step)
         self.assertIn('oras pull "${ref%:latest}@${digest}"', step)
         self.assertLess(step.index("cosign verify"), step.index("oras pull"))
+        # The signing run must come from a repository of this owner, not merely
+        # call the same public workflow.
+        self.assertIn(".optional.githubWorkflowRepository", step)
+        self.assertIn('startswith($owner + "/")', step)
+        self.assertLess(step.index("githubWorkflowRepository"), step.index("oras pull"))
         self.assertLess(
             self.text.index("sigstore/cosign-installer@"),
             self.text.index("- name: Pull the fragments the project file is validated beside"),
