@@ -302,6 +302,21 @@ class Workflow(unittest.TestCase):
             self.text,
         )
 
+    def test_fragments_to_validate_beside_are_pulled_outside_the_checkout_and_only_when_named(self):
+        self.assertIn("if: ${{ inputs.validate-with-fragments != '' }}", self.text)
+        self.assertIn("OUT: ${{ runner.temp }}/beside", self.text)
+        self.assertIn('ref="ghcr.io/${owner}/intent-${project}:latest"', self.text)
+        self.assertIn(
+            "VALIDATE_WITH: ${{ inputs.validate-with }} ${{ steps.beside.outputs.paths }}",
+            self.text,
+        )
+        # oras is set up once, before the first step that needs it.
+        self.assertEqual(self.text.count("oras-project/setup-oras@"), 1)
+        self.assertLess(
+            self.text.index("oras-project/setup-oras@"),
+            self.text.index("- name: Pull the fragments the project file is validated beside"),
+        )
+
     def test_composition_is_started_with_the_dispatch_app_only(self):
         self.assertIn("app-id: ${{ vars.ESTATE_DISPATCH_APP_ID }}", self.text)
         self.assertIn("repositories: estate", self.text)

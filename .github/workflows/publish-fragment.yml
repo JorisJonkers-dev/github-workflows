@@ -41,6 +41,15 @@ on:
         required: false
         type: string
         default: ""
+      validate-with-fragments:
+        description: >-
+          Projects whose latest published Intent Fragments are read with the
+          project file when it is validated, space separated: what the file
+          references that another repository publishes. The Platform document
+          names the delivery machinery, so it validates beside `delivery`.
+        required: false
+        type: string
+        default: ""
       migration-proof-artifact:
         description: >-
           Name of an uploaded artifact holding migration-proof.yml, written by
@@ -172,6 +181,29 @@ jobs:
           name: ${{ inputs.images-lock-artifact }}
           path: ${{ runner.temp }}/images-lock
 
+      - uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2.0.2
+        with:
+          version: 1.3.4
+      - name: Pull the fragments the project file is validated beside
+        id: beside
+        if: ${{ inputs.validate-with-fragments != '' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          PROJECTS: ${{ inputs.validate-with-fragments }}
+          OUT: ${{ runner.temp }}/beside
+        run: |
+          echo "$GITHUB_TOKEN" | oras login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          owner="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
+          paths=""
+          for project in $PROJECTS; do
+            ref="ghcr.io/${owner}/intent-${project}:latest"
+            oras pull "$ref" --output "${OUT}/${project}" \
+              || { echo "::error::${ref} is not published, and the project file is validated beside it"; exit 1; }
+            paths="${paths} ${OUT}/${project}"
+            echo "validating beside ${ref}"
+          done
+          echo "paths=${paths# }" >> "$GITHUB_OUTPUT"
       - name: Validate and pack
         id: pack
         env:
@@ -179,7 +211,7 @@ jobs:
           # goes into the fragment, never the file itself.
           IMAGES_LOCK: ${{ inputs.images-lock-artifact != '' && format('{0}/images-lock/images.lock.yml', runner.temp) || '' }}
           PROJECT_FILE: ${{ inputs.project-file }}
-          VALIDATE_WITH: ${{ inputs.validate-with }}
+          VALIDATE_WITH: ${{ inputs.validate-with }} ${{ steps.beside.outputs.paths }}
           VERSION: ${{ inputs.version }}
           SOURCE_SHA: ${{ inputs.ref || github.sha }}
           REPOSITORY: ${{ github.repository }}
@@ -187,9 +219,6 @@ jobs:
           OUT: ${{ runner.temp }}/fragment
         run: bash .github-workflows/actions/publish-fragment/pack.sh
 
-      - uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2.0.2
-        with:
-          version: 1.3.4
 
       - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
         with:
