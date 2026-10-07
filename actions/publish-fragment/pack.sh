@@ -80,7 +80,7 @@ echo "::endgroup::"
 
 project="$(yq '.spec.project' "$out/fragment.yml")"
 inputs_sha="$(yq '.spec.inputsSha' "$out/fragment.yml")"
-[[ "$project" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || fail "the fragment names project '${project}', which is not a name"
+[[ "$project" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$ ]] || fail "the fragment names project '${project}', which is not a name"
 
 echo "packed ${project} ${version} (${inputs_sha})"
 if [ -n "${GITHUB_OUTPUT:-}" ]; then

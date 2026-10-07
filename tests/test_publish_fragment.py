@@ -225,8 +225,17 @@ class Push(unittest.TestCase):
                 self.assertFalse([c for c in self.calls("oras") if c.startswith("oras push")])
                 self.assertFalse(self.calls("cosign"))
 
+    def test_the_platform_document_publishes_under_its_dotted_project(self):
+        # The Platform document's project is a domain (deploy-kit
+        # spec/v1/40-composition.md#participants), which a registry name holds.
+        run = self.run_push(PROJECT="jorisjonkers.dev")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        push = next(c for c in self.calls("oras") if c.startswith("oras push"))
+        self.assertIn("ghcr.io/jorisjonkers-dev/intent-jorisjonkers.dev:1.4.0,latest", push)
+
     def test_what_is_not_a_release_or_a_name_is_never_pushed(self):
-        for overrides in ({"VERSION": "1.4.0,latest"}, {"VERSION": "latest"}, {"PROJECT": "../other"}, {"PROJECT": "Notes"}):
+        names = ("../other", "Notes", "a..b", ".notes", "notes.", "notes/other", "notes.-x")
+        for overrides in ({"VERSION": "1.4.0,latest"}, {"VERSION": "latest"}, *({"PROJECT": n} for n in names)):
             with self.subTest(str(overrides)):
                 self.log.write_text("")
                 run = self.run_push(**overrides)

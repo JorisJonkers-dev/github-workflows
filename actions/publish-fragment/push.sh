@@ -19,7 +19,7 @@ repository="ghcr.io/$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')/intent-
 inputs_sha="$(yq '.spec.inputsSha' "$FRAGMENT/fragment.yml")"
 
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "version '${VERSION}' is not a release"
-[[ "$PROJECT" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || fail "project '${PROJECT}' is not a name"
+[[ "$PROJECT" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$ ]] || fail "project '${PROJECT}' is not a name"
 
 # The release `latest` names now. Only a registry that says there is no such
 # manifest means a first publish. Any other failure to read it stops here: an
