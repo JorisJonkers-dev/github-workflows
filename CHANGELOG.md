@@ -7,6 +7,20 @@
 * enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
 * fail Gradle warnings and deprecations while making JVM lint static-only by default
 
+## [0.20.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.19.0...v0.20.0) (2026-10-07)
+
+
+### Features
+
+* validate a fragment beside the published fragments it references ([#139](https://github.com/JorisJonkers-dev/github-workflows/issues/139)) ([a131d44](https://github.com/JorisJonkers-dev/github-workflows/commit/a131d4486ff52166e91e513a9d50da2b359b909f))
+
+
+### Bug Fixes
+
+* accept a fragment only when a repository of this owner signed it ([#142](https://github.com/JorisJonkers-dev/github-workflows/issues/142)) ([174a54a](https://github.com/JorisJonkers-dev/github-workflows/commit/174a54a756ff1b80f6eaa3bd87df4cbe443de266))
+* publish the Platform document's fragment under its dotted project ([#143](https://github.com/JorisJonkers-dev/github-workflows/issues/143)) ([a819810](https://github.com/JorisJonkers-dev/github-workflows/commit/a819810989fc21314eca9e16fb1275e32386c5ee))
+* verify a fragment's signature before validating beside it ([#141](https://github.com/JorisJonkers-dev/github-workflows/issues/141)) ([d303857](https://github.com/JorisJonkers-dev/github-workflows/commit/d30385775572969b56ee25694343df90524840e3))
+
 ## [0.19.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.18.0...v0.19.0) (2026-10-04)
 
 
