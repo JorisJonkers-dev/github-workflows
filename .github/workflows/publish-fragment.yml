@@ -186,7 +186,7 @@ jobs:
           version: 1.3.4
       - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
         with:
-          cosign-release: v2.6.1
+          cosign-release: v2.6.5
       - name: Pull the fragments the project file is validated beside
         id: beside
         if: ${{ inputs.validate-with-fragments != '' }}
