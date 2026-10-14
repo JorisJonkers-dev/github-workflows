@@ -265,15 +265,23 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: estate
 
-      - name: Start composition
+      - name: Start the delivery to production
         if: ${{ inputs.compose }}
         env:
           GH_TOKEN: ${{ steps.estate.outputs.token }}
           ESTATE: ${{ github.repository_owner }}/estate
           FRAGMENT_REF: ${{ steps.push.outputs.ref }}
+          PROJECT: ${{ steps.pack.outputs.project }}
+          VERSION: ${{ steps.pack.outputs.version }}
         run: |
           # Composition pulls every participant's newest fragment itself; the
           # dispatch only says that one moved. It is pushed, not polled: a cron
-          # in this estate runs hours late.
-          gh workflow run compose.yml --repo "$ESTATE" --ref main
-          echo "composition started in ${ESTATE} for ${FRAGMENT_REF}"
+          # in this estate runs hours late. The reason becomes the delivery
+          # run's title, so the Estate repository's Actions tab names the
+          # release that started each run. An Estate workflow that takes no
+          # reason yet refuses the input, and is then started without one.
+          gh workflow run compose.yml --repo "$ESTATE" --ref main -f reason="${PROJECT} ${VERSION} released" || {
+            echo "::warning::${ESTATE} took no reason; starting its delivery without one"
+            gh workflow run compose.yml --repo "$ESTATE" --ref main
+          }
+          echo "delivery to production started in ${ESTATE} for ${FRAGMENT_REF}"

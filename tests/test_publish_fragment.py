@@ -345,6 +345,17 @@ class Workflow(unittest.TestCase):
         self.assertIn("repositories: estate", self.text)
         self.assertIn('gh workflow run compose.yml --repo "$ESTATE" --ref main', self.text)
 
+    def test_the_delivery_is_titled_with_the_release_that_started_it(self):
+        # The Estate workflow's run title is its `reason` input; the project and
+        # version are the ones pack.sh checked and wrote, never a raw input.
+        self.assertIn('-f reason="${PROJECT} ${VERSION} released"', self.text)
+        self.assertIn("PROJECT: ${{ steps.pack.outputs.project }}", self.text)
+        self.assertIn("VERSION: ${{ steps.pack.outputs.version }}", self.text)
+        # An Estate workflow without the input still starts, without a title.
+        start = self.text.index("- name: Start the delivery to production")
+        step = self.text[start:]
+        self.assertEqual(step.count("gh workflow run compose.yml"), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
