@@ -46,7 +46,7 @@ should call released tags instead of branches.
 | `production-canary.yml` | Run caller-owned production smoke checks. |
 | `deploy-bundle.yml` | Validate first-party deploy bundles and optionally publish them to GHCR. |
 | `deploy-sources-render.yml` | Render deployment sources and expose image tags for downstream tests. |
-| `publish-fragment.yml` | Validate, pack, sign and push a project file's Intent Fragment for a release, then start composition (deploy-kit). |
+| `publish-fragment.yml` | Validate, pack, sign and push a project file's Intent Fragment for a release, then start composition (deploy-kit). Runs deploy-kit at the version `tools/deploy-kit` pins; the caller pins none. |
 | `path-buckets.yml` | The `changes` job of a bucketed pipeline: its `run` output gates each job on the buckets a diff reaches. |
 | `repository-hygiene-guard.yml` | Block reintroduction of planning and scratch artifacts. |
 | `add-to-project.yml` | Add opened/reopened issues and pull requests to the org Project. |

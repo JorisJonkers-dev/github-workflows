@@ -6,6 +6,7 @@ move bytes. So they are tested with a stand-in command that records its calls
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -355,6 +356,24 @@ class Workflow(unittest.TestCase):
         start = self.text.index("- name: Start the delivery to production")
         step = self.text[start:]
         self.assertEqual(step.count("gh workflow run compose.yml"), 2)
+
+    def test_the_toolkit_is_the_one_this_repository_pins(self):
+        self.assertNotIn("toolkit-directory", self.text)
+        step = self.text.split("- name: Install the toolkit at the version this workflow pins", 1)[1].split("- name:", 1)[0]
+        self.assertIn("working-directory: .github-workflows/tools/deploy-kit", step)
+        self.assertIn("npm ci --ignore-scripts", step)
+        self.assertIn('echo "::notice::deploy-kit $(jq -r .version node_modules/@jorisjonkers-dev/deploy-kit/package.json)"', step)
+        self.assertIn("TOOLKIT_DIRECTORY: .github-workflows/tools/deploy-kit", self.text)
+
+    def test_the_pin_is_exact_and_locked(self):
+        toolkit = ROOT / "tools" / "deploy-kit"
+        pinned = json.loads((toolkit / "package.json").read_text())["devDependencies"]["@jorisjonkers-dev/deploy-kit"]
+        self.assertRegex(pinned, r"^\d+\.\d+\.\d+$")
+        lock = json.loads((toolkit / "package-lock.json").read_text())
+        self.assertEqual(lock["packages"][""]["devDependencies"]["@jorisjonkers-dev/deploy-kit"], pinned)
+        locked = lock["packages"]["node_modules/@jorisjonkers-dev/deploy-kit"]
+        self.assertEqual(locked["version"], pinned)
+        self.assertIn("deploy-kit", locked["bin"])
 
 
 if __name__ == "__main__":

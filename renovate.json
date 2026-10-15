@@ -19,6 +19,20 @@
       ]
     },
     {
+      "description": "The deploy-kit publish-fragment.yml runs: a bump is a release of this repository, merged only once JorisJonkers-dev/estate composes with that version or newer",
+      "matchFileNames": [
+        "tools/deploy-kit/**"
+      ],
+      "matchPackageNames": [
+        "@jorisjonkers-dev/deploy-kit"
+      ],
+      "semanticCommitType": "fix",
+      "automerge": false,
+      "prBodyNotes": [
+        "Merge only once `JorisJonkers-dev/estate`'s `package.json` pins this deploy-kit version or newer: composition refuses a fragment whose model minor is newer than its own toolkit's."
+      ]
+    },
+    {
       "description": "JorisJonkers-dev/github-workflows: track semver tags, do NOT pin to digest",
       "matchPackageNames": [
         "JorisJonkers-dev/github-workflows"

@@ -5,8 +5,8 @@
 # version's shape, hands the command its arguments, and writes the per-file
 # manifest a consumer verifies the pulled package against.
 #
-# The toolkit is the one the calling repository's lockfile pins. `npm ci` in
-# TOOLKIT_DIRECTORY installed it, and `npx --no-install` can run nothing else.
+# The toolkit is the one tools/deploy-kit pins. `npm ci` in TOOLKIT_DIRECTORY
+# installed it, and `npx --no-install` can run nothing else.
 set -euo pipefail
 
 : "${PROJECT_FILE:?}" "${VERSION:?}" "${SOURCE_SHA:?}" "${REPOSITORY:?}" "${OUT:?}"
