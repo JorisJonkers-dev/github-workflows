@@ -1,0 +1,66 @@
+# The `changes` job of a bucketed pipeline. The caller's jobs gate on its output:
+#
+#   jobs:
+#     changes:
+#       uses: JorisJonkers-dev/github-workflows/.github/workflows/path-buckets.yml@vX.Y.Z
+#       with:
+#         workflows: .github/workflows/ci.yml
+#     test:
+#       needs: changes
+#       if: fromJSON(needs.changes.outputs.run).go
+#
+# A pull request runs the buckets its diff reaches; any other event runs every
+# bucket. A gated job that skips counts as passed in `Pipeline Complete`, so the
+# aggregator must accept `skipped` for gated jobs.
+name: Path Buckets
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        description: The buckets file, relative to the repository root.
+        type: string
+        required: false
+        default: .github/buckets.yml
+      workflows:
+        description: Space-separated workflow files whose bucket gates must exist.
+        type: string
+        required: false
+        default: ''
+    outputs:
+      run:
+        description: Every bucket and group as one JSON object of bools.
+        value: ${{ jobs.changes.outputs.run }}
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Decide what to validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.buckets.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/checkout@v7
+        with:
+          repository: JorisJonkers-dev/github-workflows
+          ref: v0.21.0 # x-release-please-version
+          path: .github-workflows
+          persist-credentials: false
+
+      - name: Decide which buckets this run validates
+        id: buckets
+        uses: ./.github-workflows/actions/path-buckets
+        with:
+          config: ${{ inputs.config }}
+          workflows: ${{ inputs.workflows }}
+          job: changes
+          base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          head: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || 'HEAD' }}

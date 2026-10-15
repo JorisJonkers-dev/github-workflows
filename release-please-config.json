@@ -40,6 +40,10 @@
         },
         {
           "type": "generic",
+          "path": ".github/workflows/path-buckets.yml"
+        },
+        {
+          "type": "generic",
           "path": ".github/workflows/jvm-ci.yml"
         },
         {
