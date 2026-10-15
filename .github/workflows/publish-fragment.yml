@@ -9,9 +9,9 @@
 # Call it once per project file, after the release's images exist. A merge that
 # is not released publishes nothing: the caller triggers on the tag.
 #
-# Every decision is a deploy-kit command, at the version the calling
-# repository's own lockfile pins. The scripts beside it only hand the command
-# its arguments and move bytes.
+# Every decision is a deploy-kit command, at the version tools/deploy-kit in
+# this repository pins; a calling repository pins none. The scripts beside it
+# only hand the command its arguments and move bytes.
 #
 # The signature's identity is this workflow, run for the calling repository, so
 # composition verifies every fragment against one subject and reads the
@@ -68,11 +68,6 @@ on:
         required: false
         type: string
         default: ""
-      toolkit-directory:
-        description: The directory holding the package.json and package-lock.json that pin @jorisjonkers-dev/deploy-kit.
-        required: false
-        type: string
-        default: "."
       node-version:
         description: The Node the toolkit runs on.
         required: false
@@ -139,20 +134,18 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: "@jorisjonkers-dev"
 
-      - name: Install the toolkit at the version this repository pins
-        working-directory: ${{ inputs.toolkit-directory }}
+      - name: Install the toolkit at the version this workflow pins
+        working-directory: .github-workflows/tools/deploy-kit
         env:
           NODE_AUTH_TOKEN: ${{ github.token }}
-          TOOLKIT_DIRECTORY: ${{ inputs.toolkit-directory }}
         run: |
-          # The version lives in one place, the caller's lockfile, which Renovate
-          # moves. Nothing here names a version, and `npx --no-install` below
-          # can only run what this step installed.
+          # The version lives in tools/deploy-kit/package-lock.json, which Renovate moves.
           npm ci --ignore-scripts
+          echo "::notice::deploy-kit $(jq -r .version node_modules/@jorisjonkers-dev/deploy-kit/package.json)"
           # Called with nothing to do, the command answers with its usage and
           # exits 2. Anything else means the pinned release has no command.
           npx --no-install deploy-kit >/dev/null 2>&1 || [ "$?" -eq 2 ] || {
-            echo "::error::@jorisjonkers-dev/deploy-kit in ${TOOLKIT_DIRECTORY}/package-lock.json ships no deploy-kit command; pin a release that does"
+            echo "::error::the pinned @jorisjonkers-dev/deploy-kit ships no deploy-kit command; pin a release that does"
             exit 1
           }
 
@@ -233,7 +226,7 @@ jobs:
           VERSION: ${{ inputs.version }}
           SOURCE_SHA: ${{ inputs.ref || github.sha }}
           REPOSITORY: ${{ github.repository }}
-          TOOLKIT_DIRECTORY: ${{ inputs.toolkit-directory }}
+          TOOLKIT_DIRECTORY: .github-workflows/tools/deploy-kit
           OUT: ${{ runner.temp }}/fragment
         run: bash .github-workflows/actions/publish-fragment/pack.sh
 
