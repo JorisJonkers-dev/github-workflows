@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 from scripts import path_buckets
 from scripts.path_buckets import ConfigError, classify, decide, load, main, matches, self_test, to_regex
@@ -198,16 +199,16 @@ class MainTest(unittest.TestCase):
         with workdir() as root:
             write(root / ".github/buckets.yml", CONFIG)
             output = root / "out.txt"
-            os.environ["GITHUB_OUTPUT"] = str(output)
-            try:
+            with mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}):
                 code, out = run_main(["--all"])
-            finally:
-                del os.environ["GITHUB_OUTPUT"]
             self.assertEqual(code, 0)
             self.assertEqual(output.read_text(encoding="utf-8"), out)
         self.assertEqual(json.loads(out.removeprefix("run=")), {"go": True, "web": True, "app": True})
 
+    # The runner sets GITHUB_OUTPUT for every step, so a test that needs it unset says so.
+    @mock.patch.dict(os.environ, {}, clear=False)
     def test_a_diff_decides_from_git(self) -> None:
+        os.environ.pop("GITHUB_OUTPUT", None)
         with workdir() as root:
             git(root, "init", "-q", "-b", "main")
             git(root, "config", "user.email", "test@example.invalid")
