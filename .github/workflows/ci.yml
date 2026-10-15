@@ -100,6 +100,12 @@ jobs:
           .venv-tests/bin/python -m coverage run --source=scripts.check_migrations -m unittest discover -s tests
           .venv-tests/bin/python -m coverage report --fail-under=80
 
+      # The bucket decision gates other repositories' suites, so every line and branch of it is held.
+      - name: Run path bucket tests with branch coverage
+        run: |
+          .venv-tests/bin/python -m coverage run --branch --source=scripts.path_buckets -m unittest tests.test_path_buckets
+          .venv-tests/bin/python -m coverage report --show-missing --fail-under=100
+
   # ---------------------------------------------------------------------------
   # Terminal aggregator. This is the single required check in the ruleset.
   # It runs even when an upstream job fails/cancels (if: always()) and then

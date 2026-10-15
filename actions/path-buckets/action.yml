@@ -1,0 +1,72 @@
+name: Path Buckets
+description: >
+  Decide which path buckets a pull request's diff reaches, from the caller's
+  buckets file, after self-testing that file. The `run` output maps every bucket
+  and group to a bool; a job reads one as
+  fromJSON(needs.<job>.outputs.run).<name>. The caller checks out with
+  fetch-depth 0, because the diff needs the base in the clone.
+
+inputs:
+  config:
+    description: The buckets file, relative to the repository root.
+    required: false
+    default: .github/buckets.yml
+  workflows:
+    description: >
+      Space-separated workflow files whose bucket gates must exist. Every
+      `fromJSON(needs.<job>.outputs.run).<name>` in them is checked.
+    required: false
+    default: ''
+  job:
+    description: The job whose `run` output the gates read.
+    required: false
+    default: changes
+  base:
+    description: The diff's base commit. Empty runs every bucket, as a push, merge queue entry or dispatch should.
+    required: false
+    default: ''
+  head:
+    description: The diff's head commit.
+    required: false
+    default: HEAD
+
+outputs:
+  run:
+    description: Every bucket and group as one JSON object of bools.
+    value: ${{ steps.decide.outputs.run }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install PyYAML
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 -m venv "$RUNNER_TEMP/path-buckets-venv"
+        "$RUNNER_TEMP/path-buckets-venv/bin/python" -m pip install --quiet PyYAML==6.0.2
+
+    # The self-test runs before every decision, so the rules a run applies are
+    # the rules the fixtures prove.
+    - name: Decide which buckets this run validates
+      id: decide
+      shell: bash
+      env:
+        SCRIPT: ${{ github.action_path }}/../../scripts/path_buckets.py
+        CONFIG: ${{ inputs.config }}
+        WORKFLOWS: ${{ inputs.workflows }}
+        JOB: ${{ inputs.job }}
+        BASE: ${{ inputs.base }}
+        HEAD: ${{ inputs.head }}
+      run: |
+        set -euo pipefail
+        python="$RUNNER_TEMP/path-buckets-venv/bin/python"
+        args=(--config "$CONFIG" --job "$JOB")
+        for workflow in $WORKFLOWS; do
+          args+=(--workflow "$workflow")
+        done
+        "$python" "$SCRIPT" "${args[@]}" --self-test
+        if [ -z "$BASE" ]; then
+          "$python" "$SCRIPT" --config "$CONFIG" --all
+        else
+          "$python" "$SCRIPT" --config "$CONFIG" --base "$BASE" --head "$HEAD"
+        fi
