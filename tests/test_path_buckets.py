@@ -4,6 +4,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import contextmanager, redirect_stdout
@@ -231,7 +232,7 @@ class MainTest(unittest.TestCase):
         script = Path(path_buckets.__file__)
         with workdir() as root:
             write(root / ".github/buckets.yml", CONFIG)
-            result = subprocess.run(["python3", str(script), "--self-test"], capture_output=True, text=True)
+            result = subprocess.run([sys.executable, str(script), "--self-test"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
