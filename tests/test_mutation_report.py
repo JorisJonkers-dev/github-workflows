@@ -130,3 +130,12 @@ class CommandLine(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheWorkflow(unittest.TestCase):
+    def test_gremlins_runs_every_test_against_each_mutant(self) -> None:
+        # gremlins otherwise picks the package to test by finding a directory named after the Go
+        # package, so a mutant in `package main` under cmd/app runs no tests and reads as survived.
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/mutation-report.yml").read_text()
+        unleash = next(line for line in workflow.splitlines() if "gremlins\" unleash" in line)
+        self.assertIn("--integration", unleash)

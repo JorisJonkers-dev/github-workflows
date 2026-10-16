@@ -63,7 +63,9 @@ jobs:
           bin=$(go env GOBIN)
           # gremlins reads the module root as `.`; given `./...` it finds no mutants at all. Each
           # mutant reruns the tests, and the default timeout times out a race-enabled suite.
-          "${bin:-$(go env GOPATH)/bin}/gremlins" unleash --diff "$BASE" --timeout-coefficient 40 \
+          # --integration runs every test per mutant: otherwise gremlins tests the directory named
+          # after the Go package, so a mutant in `package main` runs no tests and reads as survived.
+          "${bin:-$(go env GOPATH)/bin}/gremlins" unleash --integration --diff "$BASE" --timeout-coefficient 40 \
             --output "$RUNNER_TEMP/gremlins.json" .
 
       - name: Mutate the changed TypeScript
