@@ -8,7 +8,9 @@ apart, every mutant no test reaches. It is a report: it never fails the build.
     mutation_report.py --gremlins gremlins.json --stryker mutation.json --out comment.md
 
 A report that is absent counts as no mutants, so a repository with only Go or
-only TypeScript passes one flag.
+only TypeScript passes one flag. A tool that crashed also leaves no report, so the
+workflow names it with --failed, and the comment says so instead of claiming every
+mutant was caught.
 """
 
 from __future__ import annotations
@@ -63,7 +65,9 @@ def _table(mutants: list[Mutant]) -> list[str]:
     return rows
 
 
-def render(survived: list[Mutant], unreached: list[Mutant], problems: list[str] | None = None) -> str:
+def render(
+    survived: list[Mutant], unreached: list[Mutant], problems: list[str] | None = None, failed: list[str] | None = None
+) -> str:
     lines = [MARKER, "### Mutation report", ""]
     if survived:
         noun = "mutant" if len(survived) == 1 else "mutants"
@@ -73,8 +77,10 @@ def render(survived: list[Mutant], unreached: list[Mutant], problems: list[str] 
             "",
             *_table(survived),
         ]
-    else:
+    elif not failed:
         lines.append("Every mutant on the changed lines was caught by a test.")
+    for tool in failed or []:
+        lines += ["", f"{tool} did not finish, so its mutants are not listed: see the job log."]
     if unreached:
         lines += ["", "#### No test reaches these lines", "", *_table(unreached)]
     for problem in problems or []:
@@ -98,12 +104,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gremlins", help="gremlins' JSON report (--output)")
     parser.add_argument("--stryker", help="Stryker's JSON report (json reporter)")
     parser.add_argument("--out", required=True, help="where to write the comment")
+    parser.add_argument("--failed", action="append", default=[], help="a tool whose run did not finish")
     args = parser.parse_args(argv)
 
     problems: list[str] = []
     g_survived, g_unreached = from_gremlins(_read(args.gremlins, "gremlins", problems))
     s_survived, s_unreached = from_stryker(_read(args.stryker, "Stryker", problems))
-    comment = render(g_survived + s_survived, g_unreached + s_unreached, problems)
+    comment = render(g_survived + s_survived, g_unreached + s_unreached, problems, args.failed)
     Path(args.out).write_text(comment)
     print(comment)
     return 0
