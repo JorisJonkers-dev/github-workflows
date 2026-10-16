@@ -108,6 +108,16 @@ class CommandLine(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("Every mutant on the changed lines was caught by a test.", out.read_text())
 
+    def test_a_tool_that_did_not_finish_is_named_instead_of_reading_as_all_caught(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "comment.md"
+            with redirect_stdout(io.StringIO()):
+                code = main(["--failed", "Stryker", "--out", str(out)])
+            text = out.read_text()
+        self.assertEqual(code, 0)
+        self.assertIn("Stryker did not finish, so its mutants are not listed: see the job log.", text)
+        self.assertNotIn("Every mutant on the changed lines was caught", text)
+
     def test_a_report_that_is_not_json_is_named_but_does_not_fail(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             broken, out = Path(directory) / "g.json", Path(directory) / "comment.md"
