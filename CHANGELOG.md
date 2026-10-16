@@ -7,6 +7,13 @@
 * enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
 * fail Gradle warnings and deprecations while making JVM lint static-only by default
 
+## [0.27.1](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.27.0...v0.27.1) (2026-10-16)
+
+
+### Bug Fixes
+
+* the mutation report runs gremlins and Stryker the way each actually works ([#163](https://github.com/JorisJonkers-dev/github-workflows/issues/163)) ([e47e025](https://github.com/JorisJonkers-dev/github-workflows/commit/e47e025bd5b95b9563b574bca8b71ef22b102559))
+
 ## [0.27.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.26.0...v0.27.0) (2026-10-16)
 
 
