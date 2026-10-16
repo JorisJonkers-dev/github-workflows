@@ -56,6 +56,10 @@
         },
         {
           "type": "generic",
+          "path": ".github/workflows/mutation-report.yml"
+        },
+        {
+          "type": "generic",
           "path": ".github/workflows/node-ci.yml"
         },
         {
