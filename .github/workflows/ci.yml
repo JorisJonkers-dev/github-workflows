@@ -106,6 +106,14 @@ jobs:
           .venv-tests/bin/python -m coverage run --branch --source=scripts.path_buckets -m unittest tests.test_path_buckets
           .venv-tests/bin/python -m coverage report --show-missing --fail-under=100
 
+      # The mutation report is what reviewers read to judge a pull request's tests, so every line and
+      # branch of it is held too.
+      - name: Run mutation report tests with branch coverage
+        if: ${{ !cancelled() }}
+        run: |
+          .venv-tests/bin/python -m coverage run --branch --source=scripts.mutation_report -m unittest tests.test_mutation_report
+          .venv-tests/bin/python -m coverage report --show-missing --fail-under=100
+
   # ---------------------------------------------------------------------------
   # Terminal aggregator. This is the single required check in the ruleset.
   # It runs even when an upstream job fails/cancels (if: always()) and then
