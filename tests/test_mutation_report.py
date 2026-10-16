@@ -29,8 +29,8 @@ STRYKER = {
         "src/features/home/useLauncher.ts": {
             "language": "typescript",
             "mutants": [
-                {"id": "1", "mutatorName": "ConditionalExpression", "status": "Survived", "location": {"start": {"line": 14, "column": 5}}},
-                {"id": "2", "mutatorName": "StringLiteral", "status": "Killed", "location": {"start": {"line": 15, "column": 1}}},
+                {"id": "1", "mutatorName": "ConditionalExpression", "status": "Survived", "coveredBy": ["0"], "testsCompleted": 1, "location": {"start": {"line": 14, "column": 5}}},
+                {"id": "2", "mutatorName": "StringLiteral", "status": "Killed", "coveredBy": ["0", "1"], "testsCompleted": 1, "location": {"start": {"line": 15, "column": 1}}},
                 {"id": "3", "mutatorName": "BooleanLiteral", "status": "NoCoverage", "location": {"start": {"line": 20, "column": 2}}},
             ],
         }
@@ -117,6 +117,39 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("Stryker did not finish, so its mutants are not listed: see the job log.", text)
         self.assertNotIn("Every mutant on the changed lines was caught", text)
+
+    def test_a_stryker_run_that_measured_no_coverage_lists_none_of_its_mutants(self) -> None:
+        # Stryker's vitest runner records which tests reach each mutant; with none recorded, its
+        # setup never ran, no mutant was switched on, and every "survivor" is false.
+        unmeasured = json.loads(json.dumps(STRYKER))
+        for m in unmeasured["files"]["src/features/home/useLauncher.ts"]["mutants"]:
+            m.pop("coveredBy", None)
+            m["status"] = "Survived"
+            m["testsCompleted"] = 11
+        with tempfile.TemporaryDirectory() as directory:
+            stryker, out = Path(directory) / "s.json", Path(directory) / "comment.md"
+            stryker.write_text(json.dumps(unmeasured))
+            with redirect_stdout(io.StringIO()):
+                code = main(["--stryker", str(stryker), "--out", str(out)])
+            text = out.read_text()
+        self.assertEqual(code, 0)
+        self.assertNotIn("useLauncher.ts", text)
+        self.assertIn("Stryker did not finish", text)
+        self.assertNotIn("Every mutant on the changed lines was caught", text)
+
+    def test_a_stryker_survivor_no_test_ran_against_lists_none_of_its_mutants(self) -> None:
+        # A mutant "survives" with no test completed when the runner found no test to run for it.
+        untested = json.loads(json.dumps(STRYKER))
+        untested["files"]["src/features/home/useLauncher.ts"]["mutants"][0]["testsCompleted"] = 0
+        with tempfile.TemporaryDirectory() as directory:
+            stryker, out = Path(directory) / "s.json", Path(directory) / "comment.md"
+            stryker.write_text(json.dumps(untested))
+            with redirect_stdout(io.StringIO()):
+                main(["--stryker", str(stryker), "--out", str(out)])
+            text = out.read_text()
+        self.assertNotIn("useLauncher.ts", text)
+        self.assertIn("Stryker did not finish", text)
+        self.assertIn("Stryker ran no test against its mutants", text)
 
     def test_a_report_that_is_not_json_is_named_but_does_not_fail(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
