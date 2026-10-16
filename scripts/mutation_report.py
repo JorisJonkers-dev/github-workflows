@@ -59,6 +59,18 @@ def from_stryker(report: dict) -> tuple[list[Mutant], list[Mutant]]:
     return survived, unreached
 
 
+def stryker_worked(report: dict) -> bool:
+    """Whether Stryker's results can be trusted: it recorded which tests reach the mutants, and ran
+    a test against every mutant it calls survived. A runner that does not support the project's
+    Vitest does neither, and every mutant then reads as survived."""
+    mutants = [m for f in (report.get("files") or {}).values() for m in f.get("mutants") or []]
+    if not mutants:
+        return True
+    covered = any(m.get("coveredBy") for m in mutants)
+    untested = any(m["status"] == "Survived" and not m.get("testsCompleted") for m in mutants)
+    return covered and not untested
+
+
 def _table(mutants: list[Mutant]) -> list[str]:
     rows = ["| where | mutation |", "|---|---|"]
     rows += [f"| `{m.file}:{m.line}` | {m.mutator} |" for m in sorted(mutants)]
@@ -109,7 +121,15 @@ def main(argv: list[str] | None = None) -> int:
 
     problems: list[str] = []
     g_survived, g_unreached = from_gremlins(_read(args.gremlins, "gremlins", problems))
-    s_survived, s_unreached = from_stryker(_read(args.stryker, "Stryker", problems))
+    stryker = _read(args.stryker, "Stryker", problems)
+    s_survived, s_unreached = from_stryker(stryker)
+    if not stryker_worked(stryker):
+        s_survived, s_unreached = [], []
+        args.failed.append("Stryker")
+        problems.append(
+            "Stryker ran no test against its mutants, which happens when its test runner does not "
+            "support the project's Vitest."
+        )
     comment = render(g_survived + s_survived, g_unreached + s_unreached, problems, args.failed)
     Path(args.out).write_text(comment)
     print(comment)
