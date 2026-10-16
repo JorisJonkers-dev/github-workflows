@@ -34,6 +34,7 @@ should call released tags instead of branches.
 | `python-ci.yml` | Python Ruff, typecheck, and test workflow with overrideable commands. |
 | `nix-ci.yml` | Nix formatter, Statix, Deadnix, flake check, and optional validation. |
 | `jvm-ci.yml` | Gradle static lint/test workflow that fails Gradle warnings and deprecations. |
+| `quarantine-check.yml` | Fails the build on a quarantined test whose quarantine has expired, names no issue, or lasts more than 14 days. The marker is `quarantine: <issue-url> until YYYY-MM-DD`, in the reason of whatever skips the test. |
 | `mutation-report.yml` | Mutates the lines a pull request changes (gremlins for Go, Stryker for TypeScript and Vue) and keeps one comment listing the mutants that survived. Never fails the build. |
 | `docker-image-ci.yml` | Build a Docker image without publishing. |
 | `container-publish.yml` | Publish a GHCR image with release and sha tags. |
