@@ -44,6 +44,10 @@
         },
         {
           "type": "generic",
+          "path": ".github/workflows/quarantine-check.yml"
+        },
+        {
+          "type": "generic",
           "path": ".github/workflows/jvm-ci.yml"
         },
         {

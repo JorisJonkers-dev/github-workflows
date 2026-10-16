@@ -1,0 +1,33 @@
+name: Quarantine Check
+
+# Fails the build on a quarantined test whose quarantine has run out, names no issue, or lasts
+# more than 14 days (workspace docs/testing-standards.md, section 7). A flaky test is fixed, or
+# skipped for at most 14 days with the issue that tracks its fix; never skipped silently.
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+jobs:
+  quarantine:
+    name: Quarantine check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      # Checkout github-workflows at this workflow file's own released version; release-please
+      # keeps the literal in step with the tag this file ships in.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: JorisJonkers-dev/github-workflows
+          ref: v0.25.0 # x-release-please-version
+          path: .github-workflows
+          persist-credentials: false
+
+      - name: Check every quarantine is live
+        run: python3 .github-workflows/scripts/quarantine_check.py
