@@ -5,8 +5,11 @@ name: Mutation Report
 # Vue. One comment is kept up to date per pull request. It is a report and never fails the build
 # (workspace docs/testing-standards.md, section 6).
 #
-# The caller's toolchain comes from its mise.toml. A web directory needs @stryker-mutator/core and
-# @stryker-mutator/vitest-runner as devDependencies, so Stryker runs with the project's own vitest.
+# The caller's toolchain comes from its mise.toml. A web directory tests with Vitest and has
+# @stryker-mutator/core as a devDependency. Stryker mutates only the changed lines, one changed file
+# at a time, in place, and runs `vitest related` on that file against each mutant: its Vitest test
+# runner switches no mutant on under Vitest 5, and its sandbox loses imports from outside the web
+# directory, such as a contract file beside it.
 
 on:
   workflow_call:
@@ -75,29 +78,50 @@ jobs:
         working-directory: ${{ inputs.web-directory }}
         env:
           BASE: origin/${{ github.base_ref }}
+          RANGES: ${{ github.workspace }}/.github-workflows/scripts/changed_ranges.py
         run: |
-          changed=$(git diff --name-only --diff-filter=AM --relative "$BASE"...HEAD -- src \
-            | grep -E '\.(ts|vue)$' | grep -Ev '\.(spec|test)\.ts$|\.gen\.ts$|/infrastructure/api/' | paste -sd, - || true)
-          if [ -z "$changed" ]; then
+          git diff -U0 --diff-filter=AM --relative "$BASE"...HEAD -- src \
+            | python3 "$RANGES" \
+            | awk -F'\t' '$1 ~ /\.(ts|vue)$/ && $1 !~ /\.(spec|test|gen)\.ts$/ && $1 !~ /\/infrastructure\/api\//' \
+            > "$RUNNER_TEMP/ranges.tsv" || true
+          if [ ! -s "$RUNNER_TEMP/ranges.tsv" ]; then
             echo "No changed TypeScript or Vue source to mutate."
             exit 0
           fi
           pnpm install --frozen-lockfile
-          # pnpm keeps each package's dependencies apart, so Stryker is told where its runner is.
-          pnpm exec stryker run --plugins @stryker-mutator/vitest-runner --testRunner vitest \
-            --reporters json,clear-text --mutate "$changed"
-          cp reports/mutation/mutation.json "$RUNNER_TEMP/mutation.json"
+          i=0
+          while IFS=$'\t' read -r file spans; do
+            i=$((i + 1))
+            jq -n --arg file "$file" --arg out "$RUNNER_TEMP/stryker-$i.json" '{
+              testRunner: "command",
+              commandRunner: {command: ("pnpm exec vitest related --run " + $file)},
+              coverageAnalysis: "off",
+              inPlace: true,
+              reporters: ["json"],
+              jsonReporter: {fileName: $out}
+            }' > "$RUNNER_TEMP/stryker-$i.conf.json"
+            echo "::group::$file"
+            pnpm exec stryker run "$RUNNER_TEMP/stryker-$i.conf.json" --mutate "$spans" --concurrency "$(nproc)"
+            echo "::endgroup::"
+          done < "$RUNNER_TEMP/ranges.tsv"
 
       - name: Write the report
         env:
           GO_OUTCOME: ${{ steps.go.outcome }}
           WEB_OUTCOME: ${{ steps.web.outcome }}
+          GO_DIRECTORY: ${{ inputs.go-directory }}
+          WEB_DIRECTORY: ${{ inputs.web-directory }}
         run: |
           failed=()
           [ "$GO_OUTCOME" = failure ] && failed+=(--failed gremlins)
           [ "$WEB_OUTCOME" = failure ] && failed+=(--failed Stryker)
+          stryker=()
+          for report in "$RUNNER_TEMP"/stryker-*.json; do
+            case "$report" in *.conf.json) ;; *) [ -f "$report" ] && stryker+=(--stryker "$report") ;; esac
+          done
           python3 .github-workflows/scripts/mutation_report.py \
-            --gremlins "$RUNNER_TEMP/gremlins.json" --stryker "$RUNNER_TEMP/mutation.json" \
+            --gremlins "$RUNNER_TEMP/gremlins.json" "${stryker[@]}" \
+            --go-root "${GO_DIRECTORY:-.}" --web-root "${WEB_DIRECTORY:-.}" \
             "${failed[@]}" --out "$RUNNER_TEMP/comment.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment on the pull request

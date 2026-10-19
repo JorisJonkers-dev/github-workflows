@@ -114,6 +114,13 @@ jobs:
           .venv-tests/bin/python -m coverage run --branch --source=scripts.mutation_report -m unittest tests.test_mutation_report
           .venv-tests/bin/python -m coverage report --show-missing --fail-under=100
 
+      # The ranges decide which lines Stryker mutates, so a wrong one reports on lines nobody changed.
+      - name: Run changed-ranges tests with branch coverage
+        if: ${{ !cancelled() }}
+        run: |
+          .venv-tests/bin/python -m coverage run --branch --source=scripts.changed_ranges -m unittest tests.test_changed_ranges
+          .venv-tests/bin/python -m coverage report --show-missing --fail-under=100
+
       # A quarantine check that passes when it should fail lets a skipped test stay skipped forever.
       - name: Run quarantine check tests with branch coverage
         if: ${{ !cancelled() }}
