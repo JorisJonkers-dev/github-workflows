@@ -1,0 +1,67 @@
+name: Resolve Image Lock
+description: >
+  Write a release's images lock from the images it pushed: repository, digest,
+  uid, gid and the software version, read back from the registry, and upload it
+  as an artifact for publish-fragment's images-lock-artifact input.
+
+inputs:
+  name:
+    description: The lock's name, usually the repository's.
+    required: true
+  images:
+    description: >
+      The images to lock, separated by spaces or newlines: `alias` for
+      ghcr.io/<owner>/<alias>:<tag>, `alias=repository` for <repository>:<tag>,
+      or `alias=repository:tag` for that reference.
+    required: true
+  tag:
+    description: The release tag the images were pushed under.
+    required: true
+  artifact-name:
+    description: The artifact to upload the lock as. Defaults to images-lock-<run id>.
+    required: false
+    default: ""
+  token:
+    description: A token that can read the images.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  images-lock-artifact:
+    description: The uploaded artifact's name.
+    value: ${{ steps.name.outputs.artifact }}
+
+runs:
+  using: composite
+  steps:
+    - name: Log in to GHCR
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+      run: printf '%s' "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+    - name: Resolve the images lock
+      shell: bash
+      env:
+        LOCK_NAME: ${{ inputs.name }}
+        IMAGE_LIST: ${{ inputs.images }}
+        TAG: ${{ inputs.tag }}
+        OWNER: ${{ github.repository_owner }}
+        OUT: ${{ runner.temp }}/resolve-image-lock/images.lock.yml
+      run: |
+        mkdir -p "$(dirname "$OUT")"
+        bash "${{ github.action_path }}/resolve.sh"
+
+    - name: Name the artifact
+      id: name
+      shell: bash
+      env:
+        ARTIFACT: ${{ inputs.artifact-name || format('images-lock-{0}', github.run_id) }}
+      run: echo "artifact=${ARTIFACT}" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ steps.name.outputs.artifact }}
+        path: ${{ runner.temp }}/resolve-image-lock/images.lock.yml
+        retention-days: 1
+        overwrite: true

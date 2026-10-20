@@ -26,6 +26,15 @@ on:
         required: false
         type: string
         default: linux/amd64
+      software-version:
+        description: >-
+          The version of the software inside the image, stamped as its
+          org.opencontainers.image.version label. Left empty, it is the tag of
+          the Dockerfile's digest-pinned upstream base, or the release version
+          for an image of our own software.
+        required: false
+        type: string
+        default: ""
     secrets:
       packages-token:
         description: Token passed as docker build secret github_token.
@@ -42,6 +51,22 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+
+      # This repository at the release the caller pinned, for the script below.
+      - uses: actions/checkout@v7
+        with:
+          repository: JorisJonkers-dev/github-workflows
+          ref: v0.32.1 # x-release-please-version
+          path: .github-workflows
+          persist-credentials: false
+
+      - name: Work out the software version
+        id: software
+        env:
+          DOCKERFILE: ${{ inputs.dockerfile }}
+          RELEASE: ${{ inputs.version }}
+          OVERRIDE: ${{ inputs.software-version }}
+        run: bash .github-workflows/actions/container-publish/software-version.sh
 
       - uses: docker/setup-qemu-action@v4
 
@@ -86,6 +111,8 @@ jobs:
           platforms: ${{ inputs.platforms }}
           push: true
           tags: ${{ steps.image.outputs.tags }}
+          labels: |
+            ${{ steps.software.outputs.version != '' && format('org.opencontainers.image.version={0}', steps.software.outputs.version) || '' }}
           cache-from: type=gha,scope=${{ inputs.image-name }}
           cache-to: type=gha,mode=max,scope=${{ inputs.image-name }}
           secrets: |
