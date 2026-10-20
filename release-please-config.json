@@ -12,6 +12,10 @@
       "extra-files": [
         {
           "type": "generic",
+          "path": ".github/workflows/container-publish.yml"
+        },
+        {
+          "type": "generic",
           "path": ".github/workflows/deploy-artifact.yml"
         },
         {

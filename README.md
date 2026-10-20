@@ -24,6 +24,7 @@ should call released tags instead of branches.
 | `actions/deploy-bundle` | Validate and pack a first-party `deploy/` directory as an OCI bundle. |
 | `actions/deploy-sources-render` | Resolve deployment sources, compile Flux output, and emit image tags. |
 | `actions/path-buckets` | Decide which path buckets a pull request's diff reaches, after self-testing the caller's `.github/buckets.yml`. |
+| `actions/resolve-image-lock` | Write a release's images lock (repository, digest, uid, gid and the software version from each image's `org.opencontainers.image.version` label, else its versioned tag) and upload it for `publish-fragment.yml`. Refuses an image with no version. |
 | `actions/render-diff` | Compose the estate with a pull request's project file and comment the Project's render diff (deploy-kit). |
 
 ## Reusable Workflows
@@ -37,7 +38,7 @@ should call released tags instead of branches.
 | `quarantine-check.yml` | Fails the build on a quarantined test whose quarantine has expired, names no issue, or lasts more than 14 days. The marker is `quarantine: <issue-url> until YYYY-MM-DD`, in the reason of whatever skips the test. |
 | `mutation-report.yml` | Mutates the lines a pull request changes (gremlins for Go, Stryker for TypeScript and Vue) and keeps one comment listing the mutants that survived. Never fails the build. |
 | `docker-image-ci.yml` | Build a Docker image without publishing. |
-| `container-publish.yml` | Publish a GHCR image with release and sha tags. |
+| `container-publish.yml` | Publish a GHCR image with release and sha tags, labelled `org.opencontainers.image.version` with the software inside it: the digest-pinned upstream base's tag, our release for our own software, or the `software-version` input. |
 | `publish-api-clients.yml` | Generate and publish API clients from an OpenAPI spec. |
 | `gitops-ci.yml` | Platform config, Flux render, drift, and optional system tests. |
 | `platform-config-validate.yml` | Reusable platform YAML validation job. |
