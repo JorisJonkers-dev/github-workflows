@@ -74,7 +74,8 @@ jobs:
           push: false
           tags: ${{ steps.image.outputs.tag }}
           cache-from: type=gha,scope=${{ inputs.image-name }}
-          cache-to: type=gha,mode=max,scope=${{ inputs.image-name }}
+          # Only a default-branch push writes the cache; pull requests read it and never evict it.
+          cache-to: ${{ (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) && format('type=gha,mode=max,scope={0}', inputs.image-name) || '' }}
           secrets: |
             github_token=${{ secrets.packages-token || github.token }}
             github_actor=${{ github.actor }}

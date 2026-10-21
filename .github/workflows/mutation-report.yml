@@ -51,7 +51,10 @@ jobs:
           path: .github-workflows
           persist-credentials: false
 
+      # Pull-request only, so it reads the default branch's mise cache and never saves its own.
       - uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
+        with:
+          cache_save: false
 
       - name: Mutate the changed Go
         id: go

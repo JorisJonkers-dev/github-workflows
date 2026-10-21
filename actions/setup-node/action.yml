@@ -61,11 +61,40 @@ runs:
       if: ${{ inputs.package-manager == 'pnpm' }}
       uses: pnpm/action-setup@v6
 
+    # Only a push to the default branch saves the cache; other runs restore its latest below, so
+    # pull requests never evict it from the repository's 10 GB.
     - uses: actions/setup-node@v6
       with:
         node-version: ${{ inputs.node-version }}
-        cache: ${{ inputs.package-manager }}
+        cache: ${{ (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) && inputs.package-manager || '' }}
+        package-manager-cache: ${{ (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) }}
         cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+    - name: Locate the package cache
+      id: package-cache
+      if: ${{ !(github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PACKAGE_MANAGER: ${{ inputs.package-manager }}
+      run: |
+        set -euo pipefail
+
+        case "$PACKAGE_MANAGER" in
+          npm) dir=$(npm config get cache) ;;
+          pnpm) dir=$(pnpm store path --silent) ;;
+          yarn) dir=$(yarn config get cacheFolder 2>/dev/null || yarn cache dir) ;;
+        esac
+        # setup-node's own key: node-cache-<os>-<arch>-<package manager>-<lockfile hash>.
+        printf 'path=%s\nprefix=node-cache-%s-%s-%s-\n' "$dir" "$RUNNER_OS" "$(node -p process.arch)" "$PACKAGE_MANAGER" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the default branch's package cache
+      if: ${{ !(github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) }}
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.package-cache.outputs.path }}
+        key: ${{ steps.package-cache.outputs.prefix }}restore-only
+        restore-keys: ${{ steps.package-cache.outputs.prefix }}
 
     - name: Configure GitHub Packages for npm
       if: ${{ inputs.github-packages-token != '' }}

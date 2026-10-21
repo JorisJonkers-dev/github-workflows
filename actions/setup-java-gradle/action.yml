@@ -15,9 +15,9 @@ inputs:
     required: false
     default: 'false'
   gradle-cache-read-only:
-    description: Whether Gradle cache entries should be restored without saving updates.
+    description: Whether Gradle cache entries should be restored without saving updates. Empty means read-only everywhere but a push to the default branch, so pull requests never evict its cache.
     required: false
-    default: 'false'
+    default: ''
   github-packages-actor:
     description: GitHub Packages actor exposed to Gradle as GITHUB_ACTOR when github-packages-token is set. Empty defaults to github.actor.
     required: false
@@ -54,4 +54,4 @@ runs:
     - uses: gradle/actions/setup-gradle@v6
       with:
         cache-disabled: ${{ inputs.gradle-cache-disabled }}
-        cache-read-only: ${{ inputs.gradle-cache-read-only }}
+        cache-read-only: ${{ inputs.gradle-cache-read-only != '' && inputs.gradle-cache-read-only || !(github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) }}
