@@ -114,7 +114,9 @@ jobs:
           labels: |
             ${{ steps.software.outputs.version != '' && format('org.opencontainers.image.version={0}', steps.software.outputs.version) || '' }}
           cache-from: type=gha,scope=${{ inputs.image-name }}
-          cache-to: type=gha,mode=max,scope=${{ inputs.image-name }}
+          # Only a default-branch push writes the cache: a tag's or pull request's cache can be
+          # restored by no later run, so it would only fill the repository's 10 GB.
+          cache-to: ${{ (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) && format('type=gha,mode=max,scope={0}', inputs.image-name) || '' }}
           secrets: |
             github_token=${{ secrets.packages-token || github.token }}
             github_actor=${{ github.actor }}
