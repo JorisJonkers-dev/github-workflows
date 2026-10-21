@@ -65,6 +65,20 @@ class DockerCiBuildWritesItsCacheOnlyOnADefaultBranchPush(unittest.TestCase):
         self.assertIn("type=gha", step["with"]["cache-from"])
 
 
+class ImagePublishWritesItsCacheOnlyOnADefaultBranchPush(unittest.TestCase):
+    # A tag-triggered publish runs on the tag's ref, which no later run can restore from, so a
+    # cache it writes only fills the repository.
+    def test_container_publish_writes_the_cache_only_on_a_default_branch_push(self):
+        (step,) = steps_using(load(".github/workflows/container-publish.yml"), "docker/build-push-action")
+        self.assertIn(ON_DEFAULT_BRANCH_PUSH, step["with"]["cache-to"])
+        self.assertIn("type=gha", step["with"]["cache-from"])
+
+    def test_crac_training_writes_the_cache_only_on_a_default_branch_push(self):
+        (step,) = steps_using(load(".github/workflows/crac-train.yml"), "docker/build-push-action")
+        self.assertIn(ON_DEFAULT_BRANCH_PUSH, step["with"]["cache-to"])
+        self.assertIn("type=gha", step["with"]["cache-from"])
+
+
 class MutationReportNeverSavesAMiseCache(unittest.TestCase):
     def test_mise_runs_with_cache_save_off(self):
         (step,) = steps_using(load(".github/workflows/mutation-report.yml"), "jdx/mise-action")
