@@ -3,6 +3,6 @@
   "private": true,
   "description": "Pins the deploy-kit release publish-fragment.yml validates and packs every Intent Fragment with.",
   "devDependencies": {
-    "@jorisjonkers-dev/deploy-kit": "0.26.1"
+    "@jorisjonkers-dev/deploy-kit": "0.28.0"
   }
 }
