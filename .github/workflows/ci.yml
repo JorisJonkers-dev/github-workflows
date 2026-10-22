@@ -128,6 +128,14 @@ jobs:
           .venv-tests/bin/python -m coverage run --branch --source=scripts.quarantine_check -m unittest tests.test_quarantine_check
           .venv-tests/bin/python -m coverage report --show-missing --fail-under=100
 
+      # A wrong verdict either blocks every pull request in the estate or lets agent attribution
+      # through, so every line and branch of it is held.
+      - name: Run PR title check tests with branch coverage
+        if: ${{ !cancelled() }}
+        run: |
+          .venv-tests/bin/python -m coverage run --branch --source=scripts.pr_title_check -m unittest tests.test_pr_title_check
+          .venv-tests/bin/python -m coverage report --show-missing --fail-under=100
+
   # ---------------------------------------------------------------------------
   # Terminal aggregator. This is the single required check in the ruleset.
   # It runs even when an upstream job fails/cancels (if: always()) and then

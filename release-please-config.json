@@ -81,6 +81,10 @@
         {
           "type": "generic",
           "path": ".github/workflows/publish-fragment.yml"
+        },
+        {
+          "type": "generic",
+          "path": ".github/workflows/pr-title-check.yml"
         }
       ]
     }
