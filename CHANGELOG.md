@@ -7,6 +7,13 @@
 * enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
 * fail Gradle warnings and deprecations while making JVM lint static-only by default
 
+## [0.35.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.34.3...v0.35.0) (2026-10-22)
+
+
+### Features
+
+* add a reusable PR title and agent attribution check ([#195](https://github.com/JorisJonkers-dev/github-workflows/issues/195)) ([351f1cb](https://github.com/JorisJonkers-dev/github-workflows/commit/351f1cb74c7af015d068eb109aca11d16e86b33d))
+
 ## [0.34.3](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.34.2...v0.34.3) (2026-10-21)
 
 
