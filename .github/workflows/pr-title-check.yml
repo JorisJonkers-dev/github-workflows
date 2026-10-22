@@ -1,0 +1,45 @@
+name: PR Title Check
+
+# Fails a pull request whose title or commits are not Conventional Commits, or whose body or
+# commits credit a coding agent (scripts/pr_title_check.py). Call it from a workflow triggered
+# by pull_request with the types opened, edited, reopened and synchronize, so a retitle re-runs
+# it, and list the calling job in Pipeline Complete's needs.
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: PR title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # The pull request's head, not the merge commit, so the range holds only its own commits.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Checkout github-workflows at this workflow file's own released version; release-please
+      # keeps the literal in step with the tag this file ships in.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: JorisJonkers-dev/github-workflows
+          ref: v0.34.3 # x-release-please-version
+          path: .github-workflows
+          persist-credentials: false
+
+      - name: Check the title, the body and every commit
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          base="$(git merge-base "origin/${BASE_REF}" "${HEAD_SHA}")"
+          python3 .github-workflows/scripts/pr_title_check.py --range "${base}..${HEAD_SHA}"
