@@ -59,11 +59,11 @@ runs:
 
     - name: Set up pnpm
       if: ${{ inputs.package-manager == 'pnpm' }}
-      uses: pnpm/action-setup@v6
+      uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
     # Only a push to the default branch saves the cache; other runs restore its latest below, so
     # pull requests never evict it from the repository's 10 GB.
-    - uses: actions/setup-node@v6
+    - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
       with:
         node-version: ${{ inputs.node-version }}
         cache: ${{ (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) && inputs.package-manager || '' }}
