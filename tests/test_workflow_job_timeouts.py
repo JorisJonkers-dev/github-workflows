@@ -24,7 +24,6 @@ WORKFLOWS = sorted((ROOT / ".github/workflows").glob("*.yml"))
 LONGER_LIMIT_FILES = {
     "container-publish.yml",
     "crac-train.yml",
-    "deploy-bundle.yml",
     "docker-image-ci.yml",
     "jvm-ci.yml",
 }

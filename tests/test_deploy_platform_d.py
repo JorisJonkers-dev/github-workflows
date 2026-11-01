@@ -1,7 +1,6 @@
 """
-Tests for Chunk D: deploy-artifact.yml, leak-scan.yml, deploy-validate.yml,
-actions/deploy-artifact, actions/leak-scan, actions/deploy-preview,
-data/leak-patterns.json, and renovate.json.
+Tests for Chunk D: leak-scan.yml, actions/leak-scan, data/leak-patterns.json,
+and renovate.json.
 
 Test groups:
   T-D1: Workflow interface and permissions shape
@@ -28,16 +27,11 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
-DEPLOY_ARTIFACT_WORKFLOW = ROOT / ".github/workflows/deploy-artifact.yml"
 LEAK_SCAN_WORKFLOW = ROOT / ".github/workflows/leak-scan.yml"
-DEPLOY_VALIDATE_WORKFLOW = ROOT / ".github/workflows/deploy-validate.yml"
 
-DEPLOY_ARTIFACT_ACTION = ROOT / "actions/deploy-artifact/action.yml"
 LEAK_SCAN_ACTION = ROOT / "actions/leak-scan/action.yml"
-DEPLOY_PREVIEW_ACTION = ROOT / "actions/deploy-preview/action.yml"
 
 LEAK_SCAN_RUN = ROOT / "actions/leak-scan/run.sh"
-DEPLOY_ARTIFACT_RUN = ROOT / "actions/deploy-artifact/run.sh"
 
 LEAK_PATTERNS = ROOT / "data/leak-patterns.json"
 RENOVATE_CONFIG = ROOT / "renovate.json"
@@ -88,31 +82,7 @@ def run_script(
 class WorkflowInterfaceTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.deploy_artifact = load_yaml(DEPLOY_ARTIFACT_WORKFLOW)
         cls.leak_scan = load_yaml(LEAK_SCAN_WORKFLOW)
-        cls.deploy_validate = load_yaml(DEPLOY_VALIDATE_WORKFLOW)
-
-    def test_deploy_artifact_outputs_have_value_key(self) -> None:
-        outputs = self.deploy_artifact["on"]["workflow_call"]["outputs"]
-        for name, defn in outputs.items():
-            self.assertIn(
-                "value",
-                defn,
-                msg=f"output '{name}' in deploy-artifact.yml is missing 'value:' key",
-            )
-
-    def test_deploy_artifact_permissions_include_id_token_write(self) -> None:
-        perms = self.deploy_artifact["permissions"]
-        self.assertEqual(perms.get("id-token"), "write")
-        self.assertEqual(perms.get("attestations"), "write")
-        self.assertEqual(perms.get("packages"), "write")
-
-    def test_deploy_artifact_concurrency_never_cancels_in_progress(self) -> None:
-        conc = self.deploy_artifact["concurrency"]
-        self.assertFalse(
-            conc["cancel-in-progress"],
-            "deploy-artifact.yml must never cancel in-progress runs",
-        )
 
     def test_leak_scan_output_is_gate_summary_artifact_not_path(self) -> None:
         outputs = self.leak_scan["on"]["workflow_call"]["outputs"]
@@ -121,31 +91,6 @@ class WorkflowInterfaceTest(unittest.TestCase):
             "gate-summary-path",
             outputs,
             "leak-scan.yml must not expose gate-summary-path (only the artifact name)",
-        )
-
-    def test_deploy_validate_has_pull_requests_write(self) -> None:
-        perms = self.deploy_validate["permissions"]
-        self.assertEqual(perms.get("pull-requests"), "write")
-
-    def test_deploy_artifact_image_lock_artifact_is_only_lock_input(self) -> None:
-        """VERIFICATION fix: image-lock-artifact is the only lock input (no image-lock-path alternative)."""
-        inputs = self.deploy_artifact["on"]["workflow_call"]["inputs"]
-        self.assertIn("image-lock-artifact", inputs)
-        # image-lock-path must NOT appear as a workflow_call input — the action
-        # computes it from deploy-dir internally after download
-        self.assertNotIn(
-            "image-lock-path",
-            inputs,
-            "deploy-artifact.yml workflow_call must not expose image-lock-path; "
-            "the action derives the path from deploy-dir after artifact download",
-        )
-
-    def test_deploy_artifact_finalize_job_has_if_always(self) -> None:
-        finalize_job = self.deploy_artifact["jobs"]["finalize"]
-        self.assertEqual(
-            finalize_job.get("if", ""),
-            "always()",
-            "finalize job must run even on failure (if: always())",
         )
 
     def test_leak_scan_upload_has_if_always(self) -> None:
@@ -162,19 +107,6 @@ class WorkflowInterfaceTest(unittest.TestCase):
                 step.get("if", ""),
                 "always()",
                 "leak-scan gate-summary upload must have if: always()",
-            )
-
-    def test_deploy_validate_upload_steps_have_if_always(self) -> None:
-        validate_steps = self.deploy_validate["jobs"]["validate"]["steps"]
-        upload_steps = [
-            s for s in validate_steps if "actions/upload-artifact" in str(s.get("uses", ""))
-        ]
-        self.assertGreaterEqual(len(upload_steps), 2, "deploy-validate must upload 2 artifacts")
-        for step in upload_steps:
-            self.assertEqual(
-                step.get("if", ""),
-                "always()",
-                "deploy-validate upload steps must have if: always()",
             )
 
 
@@ -380,9 +312,7 @@ class RenovatePinTest(unittest.TestCase):
 class GateSummaryNamingTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.deploy_artifact = load_yaml(DEPLOY_ARTIFACT_WORKFLOW)
         cls.leak_scan = load_yaml(LEAK_SCAN_WORKFLOW)
-        cls.deploy_validate = load_yaml(DEPLOY_VALIDATE_WORKFLOW)
         cls.leak_scan_run = LEAK_SCAN_RUN.read_text(encoding="utf-8")
 
     def _get_upload_artifact_names(self, workflow: dict) -> list[str]:
@@ -394,14 +324,6 @@ class GateSummaryNamingTest(unittest.TestCase):
                     names.append(step.get("with", {}).get("name", ""))
         return names
 
-    def test_deploy_artifact_gate_summary_name(self) -> None:
-        names = self._get_upload_artifact_names(self.deploy_artifact)
-        self.assertIn(
-            "gate-summary-deploy-artifact",
-            names,
-            "deploy-artifact.yml must upload artifact named gate-summary-deploy-artifact",
-        )
-
     def test_leak_scan_gate_summary_name(self) -> None:
         names = self._get_upload_artifact_names(self.leak_scan)
         self.assertIn(
@@ -410,28 +332,10 @@ class GateSummaryNamingTest(unittest.TestCase):
             "leak-scan.yml must upload artifact named gate-summary-leak-scan",
         )
 
-    def test_deploy_validate_gate_summary_name(self) -> None:
-        names = self._get_upload_artifact_names(self.deploy_validate)
-        self.assertIn(
-            "gate-summary-deploy-validate",
-            names,
-            "deploy-validate.yml must upload artifact named gate-summary-deploy-validate",
-        )
-
-    def test_deploy_validate_preview_summary_name(self) -> None:
-        names = self._get_upload_artifact_names(self.deploy_validate)
-        self.assertIn(
-            "deploy-preview-summary",
-            names,
-            "deploy-validate.yml must upload artifact named deploy-preview-summary",
-        )
-
     def test_gate_summary_output_names_match_upload_names(self) -> None:
         """Verify workflow output gate-summary-artifact values match actual upload names."""
         for wf_name, wf in [
-            ("deploy-artifact", self.deploy_artifact),
             ("leak-scan", self.leak_scan),
-            ("deploy-validate", self.deploy_validate),
         ]:
             outputs = wf["on"]["workflow_call"]["outputs"]
             gsa = outputs.get("gate-summary-artifact", {})
@@ -525,31 +429,6 @@ class LeakPatternsShapeTest(unittest.TestCase):
                 0,
                 msg=f"Category '{cat_name}' must have at least one pattern",
             )
-
-
-class DeployArtifactActionOutputsTest(unittest.TestCase):
-    """Correction #8: render-hash must be declared in action.yml outputs block."""
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.action = load_yaml(DEPLOY_ARTIFACT_ACTION)
-
-    def test_render_hash_in_action_outputs(self) -> None:
-        outputs = self.action.get("outputs", {})
-        self.assertIn(
-            "render-hash",
-            outputs,
-            "actions/deploy-artifact/action.yml must declare render-hash in its outputs block (correction #8)",
-        )
-
-    def test_render_hash_output_has_value(self) -> None:
-        outputs = self.action.get("outputs", {})
-        render_hash_def = outputs.get("render-hash", {})
-        self.assertIn(
-            "value",
-            render_hash_def,
-            "render-hash output must have a value: expression",
-        )
 
 
 class LeakScanInstallAndFailClosedTest(unittest.TestCase):

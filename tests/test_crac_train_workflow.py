@@ -14,15 +14,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CRAC_WORKFLOW = ROOT / ".github/workflows/crac-train.yml"
 CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
-PLATFORM_CONFIG_WORKFLOW = ROOT / ".github/workflows/platform-config-validate.yml"
 NODE_CI_WORKFLOW = ROOT / ".github/workflows/node-ci.yml"
 PYTHON_CI_WORKFLOW = ROOT / ".github/workflows/python-ci.yml"
 NIX_CI_WORKFLOW = ROOT / ".github/workflows/nix-ci.yml"
 DOCKER_IMAGE_CI_WORKFLOW = ROOT / ".github/workflows/docker-image-ci.yml"
 CONTAINER_PUBLISH_WORKFLOW = ROOT / ".github/workflows/container-publish.yml"
 GITOPS_CI_WORKFLOW = ROOT / ".github/workflows/gitops-ci.yml"
-DEPLOY_BUNDLE_WORKFLOW = ROOT / ".github/workflows/deploy-bundle.yml"
-DEPLOY_SOURCES_RENDER_WORKFLOW = ROOT / ".github/workflows/deploy-sources-render.yml"
 ADD_TO_PROJECT_WORKFLOW = ROOT / ".github/workflows/add-to-project.yml"
 HYGIENE_GUARD_WORKFLOW = ROOT / ".github/workflows/repository-hygiene-guard.yml"
 API_CLIENT_PUBLISH_RUNNER = ROOT / "actions/api-client-publish/run.sh"
@@ -30,10 +27,6 @@ COMPOSE_ACTION = ROOT / "actions/compose-system-test-stack/action.yml"
 COMPOSE_RUNNER = ROOT / "actions/compose-system-test-stack/run.sh"
 COMPOSE_ROUTES_FIXTURE = ROOT / "actions/compose-system-test-stack/fixtures/routes.example.txt"
 COMPOSE_STACK_FIXTURE = ROOT / "actions/compose-system-test-stack/fixtures/compose.stack.example.yml"
-PLATFORM_CONFIG_ACTION = ROOT / "actions/platform-config-validate/action.yml"
-PLATFORM_CONFIG_RUNNER = ROOT / "actions/platform-config-validate/run.sh"
-PLATFORM_CONFIG_PLATFORM_FIXTURE = ROOT / "actions/platform-config-validate/fixtures/platform.example.yml"
-PLATFORM_CONFIG_SERVICE_FIXTURE = ROOT / "actions/platform-config-validate/fixtures/service-intent.example.yml"
 SETUP_NODE_ACTION = ROOT / "actions/setup-node/action.yml"
 RENOVATE_CONFIG = ROOT / "renovate.json"
 RELEASE_CONFIG = ROOT / "release-please-config.json"
@@ -334,182 +327,10 @@ class ComposeSystemTestStackActionTest(unittest.TestCase):
         self.assertIn("${SYSTEM_TEST_APP_IMAGE", compose)
 
 
-class PlatformConfigValidateSurfaceTest(unittest.TestCase):
+class CiWorkflowTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.workflow = PLATFORM_CONFIG_WORKFLOW.read_text(encoding="utf-8")
-        cls.action = PLATFORM_CONFIG_ACTION.read_text(encoding="utf-8")
-        cls.runner = PLATFORM_CONFIG_RUNNER.read_text(encoding="utf-8")
-        cls.readme = README.read_text(encoding="utf-8")
         cls.ci = CI_WORKFLOW.read_text(encoding="utf-8")
-
-    def write_executable(self, path: Path, body: str) -> None:
-        path.write_text(textwrap.dedent(body), encoding="utf-8")
-        path.chmod(0o755)
-
-    def install_fake_npm(self, bin_dir: Path) -> None:
-        self.write_executable(
-            bin_dir / "npm",
-            """\
-            #!/usr/bin/env bash
-            set -euo pipefail
-
-            printf 'npm' >> "$COMMAND_LOG"
-            printf ' <%s>' "$@" >> "$COMMAND_LOG"
-            printf '\\n' >> "$COMMAND_LOG"
-
-            case "${1:-}" in
-              init)
-                printf '{}\\n' > package.json
-                ;;
-              install)
-                package_dir="node_modules/@jorisjonkers-dev/deploy-config-schema"
-                mkdir -p "$package_dir"
-                cat > "$package_dir/package.json" <<'JSON'
-            {"bin":{"deploy-config-schema":"cli.js"}}
-            JSON
-                cat > "$package_dir/cli.js" <<'JS'
-            #!/usr/bin/env node
-            const fs = require("fs");
-            const args = process.argv.slice(2);
-            fs.appendFileSync(process.env.COMMAND_LOG, `cli ${args.map((arg) => `<${arg}>`).join(" ")}\\n`);
-            if (args[0] === "validate" && process.env.CLI_VALIDATE_EXIT) {
-              process.exit(Number(process.env.CLI_VALIDATE_EXIT));
-            }
-            if (args[0] === "render-tree" && process.env.CLI_DRIFT_EXIT) {
-              process.exit(Number(process.env.CLI_DRIFT_EXIT));
-            }
-            JS
-                chmod +x "$package_dir/cli.js"
-                ;;
-            esac
-            """,
-        )
-
-    def run_platform_config_action(
-        self,
-        workdir: Path,
-        env_overrides: dict[str, str],
-    ) -> subprocess.CompletedProcess[str]:
-        bin_dir = workdir / "bin"
-        runner_temp = workdir / "runner-temp"
-        repo_dir = workdir / "repo"
-        bin_dir.mkdir(exist_ok=True)
-        runner_temp.mkdir(exist_ok=True)
-        repo_dir.mkdir(exist_ok=True)
-
-        command_log = workdir / "commands.log"
-        self.install_fake_npm(bin_dir)
-
-        env = os.environ.copy()
-        env.update(
-            {
-                "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}",
-                "COMMAND_LOG": str(command_log),
-                "RUNNER_TEMP": str(runner_temp),
-                "CONFIG_PATHS": "platform/**/*.yaml\nplatform/**/*.yml",
-                "SCHEMA_KIND": "auto",
-                "PACKAGE_VERSION": "0.3.0",
-                "DRIFT_CHECK": "false",
-                "WORKING_DIRECTORY": str(repo_dir),
-            }
-        )
-        env.update(env_overrides)
-
-        return subprocess.run(
-            [str(PLATFORM_CONFIG_RUNNER)],
-            env=env,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-
-    def test_reusable_workflow_exposes_expected_inputs_and_wraps_action(self) -> None:
-        expected_inputs = [
-            "config-paths",
-            "schema-kind",
-            "package-version",
-            "drift-check",
-            "working-directory",
-        ]
-        for expected_input in expected_inputs:
-            self.assertIn(f"      {expected_input}:", self.workflow)
-            self.assertIn(f"  {expected_input}:", self.action)
-
-        self.assertIn("on:\n  workflow_call:", self.workflow)
-        self.assertIn("uses: ./.github-workflows/actions/platform-config-validate", self.workflow)
-        self.assertIn("repository: JorisJonkers-dev/github-workflows", self.workflow)
-        self.assertIn("actions/setup-node@v6", self.action)
-        self.assertIn('run: bash "${{ github.action_path }}/run.sh"', self.action)
-
-    def test_action_supports_schema_kinds_package_pin_and_drift_check(self) -> None:
-        self.assertIn("default: 0.3.0", self.action)
-        self.assertIn("platform|deploy-config|service-intent|fleet-inventory|vault-dynamic-secrets|auto", self.runner)
-        self.assertIn('"$cli_bin" validate "$schema_kind"', self.runner)
-        self.assertIn('"$cli_bin" validate', self.runner)
-        self.assertIn('"$cli_bin" render-tree "$drift_file" --check', self.runner)
-
-    def test_runner_expands_globs_installs_package_and_runs_drift_check(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            workdir = Path(temp)
-            repo_dir = workdir / "repo"
-            repo_dir.mkdir()
-            (repo_dir / "platform").mkdir()
-            (repo_dir / "intents").mkdir()
-            (repo_dir / "platform/app.yml").write_text("kind: platform\n", encoding="utf-8")
-            (repo_dir / "platform/cluster.yaml").write_text("kind: platform\n", encoding="utf-8")
-            (repo_dir / "intents/api.yaml").write_text("kind: service-intent\n", encoding="utf-8")
-
-            result = self.run_platform_config_action(
-                workdir,
-                {
-                    "WORKING_DIRECTORY": str(repo_dir),
-                    "CONFIG_PATHS": "platform/*.yml\nplatform/*.yaml\nintents/*.yaml",
-                    "SCHEMA_KIND": "platform",
-                    "PACKAGE_VERSION": "9.8.7",
-                    "DRIFT_CHECK": "true",
-                },
-            )
-
-            self.assertEqual(result.returncode, 0, result.stderr)
-            log = (workdir / "commands.log").read_text(encoding="utf-8")
-            self.assertIn("npm <install> <--userconfig>", log)
-            self.assertIn("<--no-audit> <--no-fund> <--save-exact> <@jorisjonkers-dev/deploy-config-schema@9.8.7>", log)
-            self.assertIn(
-                "cli <validate> <platform> <platform/app.yml> <platform/cluster.yaml> <intents/api.yaml>",
-                log,
-            )
-            self.assertIn(
-                "cli <render-tree> <platform/app.yml> <--check>",
-                log,
-            )
-
-    def test_runner_fails_clearly_when_no_configs_match(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            workdir = Path(temp)
-            repo_dir = workdir / "repo"
-            repo_dir.mkdir()
-
-            result = self.run_platform_config_action(
-                workdir,
-                {
-                    "WORKING_DIRECTORY": str(repo_dir),
-                    "CONFIG_PATHS": "platform/**/*.yaml",
-                },
-            )
-
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("No config files matched config-paths", result.stdout)
-
-    def test_generic_fixtures_and_readme_usage_are_present(self) -> None:
-        platform_fixture = PLATFORM_CONFIG_PLATFORM_FIXTURE.read_text(encoding="utf-8")
-        service_fixture = PLATFORM_CONFIG_SERVICE_FIXTURE.read_text(encoding="utf-8")
-
-        self.assertIn("name: example-platform", platform_fixture)
-        self.assertIn("api-service:", service_fixture)
-        self.assertIn("platform-config-validate.yml", self.readme)
-        self.assertIn("@jorisjonkers-dev/deploy-config-schema", self.readme)
 
     def test_ci_uses_official_actionlint_download_script(self) -> None:
         self.assertIn("download-actionlint.bash", self.ci)
@@ -526,8 +347,6 @@ class MigrationReusableWorkflowSurfaceTest(unittest.TestCase):
         cls.docker_image_ci = DOCKER_IMAGE_CI_WORKFLOW.read_text(encoding="utf-8")
         cls.container_publish = CONTAINER_PUBLISH_WORKFLOW.read_text(encoding="utf-8")
         cls.gitops_ci = GITOPS_CI_WORKFLOW.read_text(encoding="utf-8")
-        cls.deploy_bundle = DEPLOY_BUNDLE_WORKFLOW.read_text(encoding="utf-8")
-        cls.deploy_sources_render = DEPLOY_SOURCES_RENDER_WORKFLOW.read_text(encoding="utf-8")
         cls.add_to_project = ADD_TO_PROJECT_WORKFLOW.read_text(encoding="utf-8")
         cls.hygiene_guard = HYGIENE_GUARD_WORKFLOW.read_text(encoding="utf-8")
         cls.api_client_publish_runner = API_CLIENT_PUBLISH_RUNNER.read_text(encoding="utf-8")
@@ -537,8 +356,6 @@ class MigrationReusableWorkflowSurfaceTest(unittest.TestCase):
     def test_reusable_workflows_are_documented_at_current_tag(self) -> None:
         for workflow in [
             "node-ci.yml",
-            "deploy-bundle.yml",
-            "deploy-sources-render.yml",
             "crac-train.yml",
         ]:
             self.assertTrue((ROOT / f".github/workflows/{workflow}").is_file())
@@ -583,12 +400,7 @@ class MigrationReusableWorkflowSurfaceTest(unittest.TestCase):
         self.assertIn('printf \'%s:sha-%s\\n\' "$image_ref" "$GITHUB_SHA"', self.container_publish)
         self.assertNotIn(":latest", self.container_publish)
 
-    def test_deploy_v2_workflows_expose_bundle_render_and_project_surfaces(self) -> None:
-        self.assertIn("'uses': './.github-workflows/actions/deploy-bundle'", self.deploy_bundle)
-        self.assertIn("oras push --disable-path-validation", self.deploy_bundle)
-        self.assertIn("application/vnd.jorisjonkers.deployment.bundle.v1+tar", self.deploy_bundle)
-        self.assertIn("'uses': './.github-workflows/actions/deploy-sources-render'", self.deploy_sources_render)
-        self.assertIn("'image-tags':", self.deploy_sources_render)
+    def test_project_and_hygiene_workflows_expose_their_surfaces(self) -> None:
         self.assertIn("actions/create-github-app-token@v3", self.add_to_project)
         self.assertIn("actions/add-to-project@v2.0.0", self.add_to_project)
         self.assertIn(".specify/**", self.hygiene_guard)
@@ -601,11 +413,8 @@ class MigrationReusableWorkflowSurfaceTest(unittest.TestCase):
         self.assertIn("npm_package_version_exists", self.api_client_publish_runner)
         self.assertIn("npm package ${ts_package}@${version} already exists", self.api_client_publish_runner)
 
-    def test_gitops_ci_runs_required_and_optional_validation_steps(self) -> None:
-        self.assertIn("uses: ./.github-workflows/actions/platform-config-validate", self.gitops_ci)
+    def test_gitops_ci_runs_flux_render_and_optional_system_tests(self) -> None:
         self.assertIn("uses: ./.github-workflows/actions/flux-render-validate", self.gitops_ci)
-        self.assertIn("uses: ./.github-workflows/actions/deploy-config-render-drift", self.gitops_ci)
-        self.assertIn("inputs.deploy-config-command != '' && inputs.deploy-config-targets != ''", self.gitops_ci)
         self.assertIn("inputs.system-tests-command != ''", self.gitops_ci)
 
     def test_release_and_renovate_configs_match_migration_contract(self) -> None:

@@ -9,10 +9,8 @@ tags (e.g. `@v1.2.3`) and is **not** digest-pinned — the semver tag IS the int
 signal because the repo is org-controlled. Renovate updates it when a new semver tag
 is published, without digest-pinning.
 
-`cosign`, `syft`, `oras`, `kubeconform`, `kustomize`, and `yq` are installed in
-`actions/deploy-artifact/install-tooling.sh` by SHA-pinned release download URLs
-(verified with `sha256sum`). These are updated by a separate `pinned-tooling` group in
-renovate.json when one is added.
+`gitleaks` and `trufflehog` are installed in `actions/leak-scan/action.yml` from
+pinned release download URLs, verified with `sha256sum`.
 
 ## Adding a new third-party action
 
