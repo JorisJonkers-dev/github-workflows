@@ -16,26 +16,6 @@
         },
         {
           "type": "generic",
-          "path": ".github/workflows/deploy-artifact.yml"
-        },
-        {
-          "type": "generic",
-          "path": ".github/workflows/deploy-bundle.yml"
-        },
-        {
-          "type": "generic",
-          "path": ".github/workflows/deploy-config-render-drift.yml"
-        },
-        {
-          "type": "generic",
-          "path": ".github/workflows/deploy-sources-render.yml"
-        },
-        {
-          "type": "generic",
-          "path": ".github/workflows/deploy-validate.yml"
-        },
-        {
-          "type": "generic",
           "path": ".github/workflows/flux-render-validate.yml"
         },
         {
@@ -69,10 +49,6 @@
         {
           "type": "generic",
           "path": ".github/workflows/node-ci.yml"
-        },
-        {
-          "type": "generic",
-          "path": ".github/workflows/platform-config-validate.yml"
         },
         {
           "type": "generic",

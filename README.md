@@ -5,9 +5,9 @@ repositories.
 
 ## What It Is
 
-`github-workflows` centralizes CI, release, image publishing, deploy bundle,
-Project automation, and repository hygiene automation. Consumer repositories
-should call released tags instead of branches.
+`github-workflows` centralizes CI, release, image publishing, Intent Fragment
+publishing, Project automation, and repository hygiene automation. Consumer
+repositories should call released tags instead of branches.
 
 ## Composite Actions
 
@@ -16,13 +16,9 @@ should call released tags instead of branches.
 | `actions/setup-java-gradle` | Install Java and configure Gradle package access/cache settings. |
 | `actions/setup-node` | Install Node, configure npm/pnpm/yarn caching, and install dependencies. |
 | `actions/prepare-ci-host` | Download Docker image artifacts and prepare optional dev DNS. |
-| `actions/platform-config-validate` | Install `@jorisjonkers-dev/deploy-config-schema` and validate platform YAML. |
-| `actions/deploy-config-render-drift` | Render deploy-config adapter output and compare committed files. |
 | `actions/flux-render-validate` | Validate Flux render output for GitOps repositories. |
 | `actions/compose-system-test-stack` | Run caller-owned Docker Compose system-test stacks. |
 | `actions/api-client-publish` | Generate and publish TypeScript, Java, and Kotlin API clients. |
-| `actions/deploy-bundle` | Validate and pack a first-party `deploy/` directory as an OCI bundle. |
-| `actions/deploy-sources-render` | Resolve deployment sources, compile Flux output, and emit image tags. |
 | `actions/path-buckets` | Decide which path buckets a pull request's diff reaches, after self-testing the caller's `.github/buckets.yml`. |
 | `actions/resolve-image-lock` | Write a release's images lock (repository, digest, uid, gid and the software version from each image's `org.opencontainers.image.version` label, else its versioned tag) and upload it for `publish-fragment.yml`. Refuses an image with no version. |
 | `actions/render-diff` | Compose the estate with a pull request's project file and comment the Project's render diff (deploy-kit). |
@@ -41,15 +37,11 @@ should call released tags instead of branches.
 | `docker-image-ci.yml` | Build a Docker image without publishing. |
 | `container-publish.yml` | Publish a GHCR image with release and sha tags, labelled `org.opencontainers.image.version` with the software inside it: the digest-pinned upstream base's tag, our release for our own software, or the `software-version` input. |
 | `publish-api-clients.yml` | Generate and publish API clients from an OpenAPI spec. |
-| `gitops-ci.yml` | Platform config, Flux render, drift, and optional system tests. |
-| `platform-config-validate.yml` | Reusable platform YAML validation job. |
-| `deploy-config-render-drift.yml` | Reusable deploy-config render-drift job. |
+| `gitops-ci.yml` | Flux render validation and optional system tests. |
 | `flux-render-validate.yml` | Reusable Flux render validation job. |
 | `migration-guard.yml` | Block unsafe edits to existing Flyway-style migrations. |
 | `crac-train.yml` | Build and run CRaC training images with optional sidecars. |
 | `production-canary.yml` | Run caller-owned production smoke checks. |
-| `deploy-bundle.yml` | Validate first-party deploy bundles and optionally publish them to GHCR. |
-| `deploy-sources-render.yml` | Render deployment sources and expose image tags for downstream tests. |
 | `publish-fragment.yml` | Validate, pack, sign and push a project file's Intent Fragment for a release, then start composition (deploy-kit). Runs deploy-kit at the version `tools/deploy-kit` pins; the caller pins none. |
 | `path-buckets.yml` | The `changes` job of a bucketed pipeline: its `run` output gates each job on the buckets a diff reaches. |
 | `repository-hygiene-guard.yml` | Block reintroduction of planning and scratch artifacts. |
@@ -89,26 +81,6 @@ invocations so Gradle warnings and deprecations fail CI. The default
 `lint-gradle-args` is now `detektMain detektTest ktlintCheck`; consumers without
 those tasks must pass their own static-only lint command. The default
 `test-gradle-args` remains `test`.
-
-```yaml
-jobs:
-  deploy-bundle:
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/deploy-bundle.yml@v0.7.3
-    with:
-      deploy-dir: deploy
-      version: ${{ needs.release.outputs.version }}
-      publish: true
-    secrets:
-      packages-token: ${{ secrets.GITHUB_TOKEN }}
-```
-
-```yaml
-jobs:
-  deploy-sources-render:
-    uses: JorisJonkers-dev/github-workflows/.github/workflows/deploy-sources-render.yml@v0.7.3
-    secrets:
-      packages-token: ${{ secrets.GITHUB_TOKEN }}
-```
 
 ```yaml
 jobs:
