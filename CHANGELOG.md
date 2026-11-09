@@ -7,6 +7,13 @@
 * enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
 * fail Gradle warnings and deprecations while making JVM lint static-only by default
 
+## [0.45.4](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.45.3...v0.45.4) (2026-11-09)
+
+
+### Bug Fixes
+
+* **container-publish:** mount the packages proxy netrc and npmrc through secret-files ([#230](https://github.com/JorisJonkers-dev/github-workflows/issues/230)) ([fc3b65f](https://github.com/JorisJonkers-dev/github-workflows/commit/fc3b65fed73e0d5489b12869787c60081e327125))
+
 ## [0.45.3](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.45.2...v0.45.3) (2026-11-09)
 
 
