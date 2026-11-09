@@ -95,89 +95,49 @@ runs:
         init_dir="$HOME/.gradle/init.d"
         mkdir -p "$init_dir"
         cat > "$init_dir/packages-proxy.init.gradle.kts" <<'KTS'
-        // Route dependency resolution through the packages proxy. First-party
-        // GitHub Packages repositories stay direct; everything else is moved
-        // behind the proxy.
-        fun ArtifactRepository.isAllowed(): Boolean = when (this) {
-            is MavenArtifactRepository -> {
-                val host = runCatching { url.host }.getOrNull()
-                host == "maven.pkg.github.com" || host == "packages.jorisjonkers.dev"
-            }
-            is FlatDirectoryArtifactRepository, is IvyArtifactRepository -> true
-            else -> false
-        }
+        // Route dependency resolution through the packages proxy. First-party GitHub
+        // Packages and local (file) repositories stay as they are; every other Maven
+        // repository keeps its place but has its URL rewritten to the proxy's
+        // equivalent, with the proxy's credentials. Nothing is added or removed, so
+        // repository order, the settings-versus-project choice and
+        // FAIL_ON_PROJECT_REPOS all behave as the build declared them.
+        val proxy = "https://packages.jorisjonkers.dev/maven/"
 
-        fun RepositoryHandler.addPackagesProxy() {
-            maven {
-                name = "packagesProxy"
-                setUrl("https://packages.jorisjonkers.dev/maven/")
-                packagesProxyAuthentication()
-            }
-            maven {
-                name = "packagesProxySpringMilestone"
-                setUrl("https://packages.jorisjonkers.dev/maven/spring-milestone/")
-                packagesProxyAuthentication()
-            }
-            maven {
-                name = "packagesProxySonatypeSnapshots"
-                setUrl("https://packages.jorisjonkers.dev/maven/sonatype-snapshots/")
-                content { mavenContent { snapshotsOnly() } }
-                packagesProxyAuthentication()
-            }
-            maven {
-                name = "packagesProxyGoogleMaven"
-                setUrl("https://packages.jorisjonkers.dev/maven/google-maven/")
-                packagesProxyAuthentication()
+        fun proxyUrlFor(url: java.net.URI): String? {
+            val host = url.host ?: return null
+            if (url.scheme == "file" || host == "maven.pkg.github.com" || host == "packages.jorisjonkers.dev") return null
+            val path = url.path ?: ""
+            return when {
+                host == "repo.spring.io" && path.startsWith("/milestone") -> proxy + "spring-milestone/"
+                host.endsWith("sonatype.org") || host == "central.sonatype.com" && path.contains("snapshots") -> proxy + "sonatype-snapshots/"
+                host == "maven.google.com" || host == "dl.google.com" -> proxy + "google-maven/"
+                else -> proxy // Maven Central, the Gradle Plugin Portal, and any other mirror of Central
             }
         }
 
-        // `all` also runs for every repository added later, so a repository a
-        // build script declares after this point is removed as it is added
-        // (Gradle's own "enterprise repository" init-script pattern).
-        //
-        // always = true adds the proxy repositories up front (settings). With
-        // always = false (projects) they are added only once the project itself
-        // declared a third-party repository: a project that declares none must
-        // stay empty, or Gradle stops using the settings repositories (GitHub
-        // Packages among them) and fails under FAIL_ON_PROJECT_REPOS.
-        fun RepositoryHandler.usePackagesProxy(always: Boolean) {
-            var added = false
-            if (always) {
-                addPackagesProxy()
-                added = true
-            }
+        fun RepositoryHandler.usePackagesProxy() {
             all {
-                if (!isAllowed()) {
-                    remove(this)
-                    if (!added) {
-                        added = true
-                        addPackagesProxy()
-                    }
+                val repo = this as? MavenArtifactRepository ?: return@all
+                val target = runCatching { proxyUrlFor(repo.url) }.getOrNull() ?: return@all
+                repo.setUrl(target)
+                repo.credentials(HttpHeaderCredentials::class) {
+                    name = "Authorization"
+                    value = "Bearer " + System.getenv("PACKAGES_PROXY_TOKEN")
+                }
+                repo.authentication {
+                    create<HttpHeaderAuthentication>("header")
                 }
             }
         }
 
-        fun MavenArtifactRepository.packagesProxyAuthentication() {
-            credentials(HttpHeaderCredentials::class) {
-                name = "Authorization"
-                value = "Bearer " + System.getenv("PACKAGES_PROXY_TOKEN")
-            }
-            authentication {
-                create<HttpHeaderAuthentication>("header")
-            }
-        }
-
         settingsEvaluated {
-            pluginManagement.repositories.usePackagesProxy(always = true)
-            dependencyResolutionManagement.repositories.usePackagesProxy(always = true)
+            pluginManagement.repositories.usePackagesProxy()
+            dependencyResolutionManagement.repositories.usePackagesProxy()
         }
 
-        // Before the project's own build script runs, so its `repositories {}`
-        // and `buildscript { repositories {} }` blocks add to handlers that
-        // already drop third-party repositories.
         beforeProject {
-            buildscript.repositories.usePackagesProxy(always = false)
-            repositories.usePackagesProxy(always = false)
+            buildscript.repositories.usePackagesProxy()
+            repositories.usePackagesProxy()
         }
         KTS
 
