@@ -101,7 +101,7 @@ MOUNTS = {
 
 # A step that sets up the proxy with its token, as an action.
 COVERING_USES = re.compile(
-    r"^(?:JorisJonkers-dev/github-workflows|\./\.github-workflows)/actions/"
+    r"^(?:JorisJonkers-dev/github-workflows|\./\.github-workflows|\.)/actions/"
     r"(?:setup-package-proxy|setup-java-gradle|setup-node)(?:@\S+)?$"
 )
 TOKEN_KEYS = ("token", "packages-proxy-token")

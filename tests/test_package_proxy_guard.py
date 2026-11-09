@@ -200,6 +200,55 @@ class CleanTree(unittest.TestCase):
         self.assertEqual("package-proxy-guard: 0 finding(s) in 0 file(s), 0 allowlisted, mode enforce\n", output)
 
 
+class LocalSetupActions(unittest.TestCase):
+    def test_covering_uses_accepts_this_repositories_own_actions(self) -> None:
+        self.assertTrue(guard.COVERING_USES.match("./actions/setup-package-proxy"))
+        self.assertTrue(guard.COVERING_USES.match("./actions/setup-package-proxy@v0.45.0"))
+        self.assertTrue(guard.COVERING_USES.match("./actions/setup-java-gradle"))
+
+    def test_covering_uses_rejects_other_local_actions(self) -> None:
+        self.assertIsNone(guard.COVERING_USES.match("./actions/setup-python"))
+        self.assertIsNone(guard.COVERING_USES.match("./actions/setup-package-proxy-x"))
+
+    def test_local_setup_package_proxy_covers_a_pip_install(self) -> None:
+        files = {
+            ".github/workflows/ci.yml": """\
+name: CI
+on: push
+jobs:
+  python:
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./actions/setup-package-proxy
+        with:
+          token: ${{ secrets.PACKAGES_PROXY_TOKEN }}
+      - run: pip install x
+"""
+        }
+        root = make_tree(files)
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([], [f for f in findings if f.rule == "uncovered-install"])
+
+    def test_local_setup_java_gradle_covers_gradlew(self) -> None:
+        files = {
+            ".github/workflows/ci.yml": """\
+name: CI
+on: push
+jobs:
+  jvm:
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./actions/setup-java-gradle
+        with:
+          token: ${{ secrets.PACKAGES_PROXY_TOKEN }}
+      - run: ./gradlew test
+"""
+        }
+        root = make_tree(files)
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([], [f for f in findings if f.rule == "uncovered-install"])
+
+
 class UncoveredTree(unittest.TestCase):
     def setUp(self) -> None:
         self.root = make_tree(UNCOVERED)
