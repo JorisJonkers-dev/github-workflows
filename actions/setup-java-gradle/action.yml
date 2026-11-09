@@ -107,14 +107,7 @@ runs:
             else -> false
         }
 
-        // `all` also runs for every repository added later, so a repository a
-        // build script declares after this point is removed as it is added
-        // (Gradle's own "enterprise repository" init-script pattern).
-        fun RepositoryHandler.usePackagesProxy() {
-            all {
-                if (!isAllowed()) remove(this)
-            }
-
+        fun RepositoryHandler.addPackagesProxy() {
             maven {
                 name = "packagesProxy"
                 setUrl("https://packages.jorisjonkers.dev/maven/")
@@ -138,6 +131,32 @@ runs:
             }
         }
 
+        // `all` also runs for every repository added later, so a repository a
+        // build script declares after this point is removed as it is added
+        // (Gradle's own "enterprise repository" init-script pattern).
+        //
+        // always = true adds the proxy repositories up front (settings). With
+        // always = false (projects) they are added only once the project itself
+        // declared a third-party repository: a project that declares none must
+        // stay empty, or Gradle stops using the settings repositories (GitHub
+        // Packages among them) and fails under FAIL_ON_PROJECT_REPOS.
+        fun RepositoryHandler.usePackagesProxy(always: Boolean) {
+            var added = false
+            if (always) {
+                addPackagesProxy()
+                added = true
+            }
+            all {
+                if (!isAllowed()) {
+                    remove(this)
+                    if (!added) {
+                        added = true
+                        addPackagesProxy()
+                    }
+                }
+            }
+        }
+
         fun MavenArtifactRepository.packagesProxyAuthentication() {
             credentials(HttpHeaderCredentials::class) {
                 name = "Authorization"
@@ -149,16 +168,16 @@ runs:
         }
 
         settingsEvaluated {
-            pluginManagement.repositories.usePackagesProxy()
-            dependencyResolutionManagement.repositories.usePackagesProxy()
+            pluginManagement.repositories.usePackagesProxy(always = true)
+            dependencyResolutionManagement.repositories.usePackagesProxy(always = true)
         }
 
         // Before the project's own build script runs, so its `repositories {}`
         // and `buildscript { repositories {} }` blocks add to handlers that
         // already drop third-party repositories.
         beforeProject {
-            buildscript.repositories.usePackagesProxy()
-            repositories.usePackagesProxy()
+            buildscript.repositories.usePackagesProxy(always = false)
+            repositories.usePackagesProxy(always = false)
         }
         KTS
 
