@@ -7,6 +7,13 @@
 * enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
 * fail Gradle warnings and deprecations while making JVM lint static-only by default
 
+## [0.44.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.43.0...v0.44.0) (2026-11-09)
+
+
+### Features
+
+* **package-proxy:** opt-in package proxy settings for CI, and a pip upload cooldown ([#218](https://github.com/JorisJonkers-dev/github-workflows/issues/218)) ([03e6713](https://github.com/JorisJonkers-dev/github-workflows/commit/03e6713fb474ca509fd992c777621c3bcb4b41e1)), closes [#216](https://github.com/JorisJonkers-dev/github-workflows/issues/216)
+
 ## [0.43.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.42.0...v0.43.0) (2026-11-02)
 
 
