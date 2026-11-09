@@ -117,7 +117,7 @@ name: 'Repository Hygiene Guard'
         'uses': 'actions/checkout@v7'
         'with':
           'repository': 'JorisJonkers-dev/github-workflows'
-          'ref': 'v0.45.0' # x-release-please-version
+          'ref': 'v0.45.1' # x-release-please-version
           'path': '.github-workflows'
           'persist-credentials': false
 

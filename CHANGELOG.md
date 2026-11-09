@@ -7,6 +7,15 @@
 * enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
 * fail Gradle warnings and deprecations while making JVM lint static-only by default
 
+## [0.45.1](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.45.0...v0.45.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **package-proxy:** write a Cargo registry that sends its token ([55952ae](https://github.com/JorisJonkers-dev/github-workflows/commit/55952ae14657072882b04546a798785364f4fb54))
+* **setup-java-gradle:** add the proxy to a project only when it decla… ([285066e](https://github.com/JorisJonkers-dev/github-workflows/commit/285066ec9d23fb0230288fa4fcda809319c8dd40))
+* **setup-java-gradle:** add the proxy to a project only when it declared its own repositories ([#224](https://github.com/JorisJonkers-dev/github-workflows/issues/224)) ([285066e](https://github.com/JorisJonkers-dev/github-workflows/commit/285066ec9d23fb0230288fa4fcda809319c8dd40))
+
 ## [0.45.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.44.0...v0.45.0) (2026-11-09)
 
 
