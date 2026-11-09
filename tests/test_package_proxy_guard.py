@@ -2,11 +2,23 @@ from __future__ import annotations
 
 import contextlib
 import io
+import re
 import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 from scripts import package_proxy_guard as guard
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+# Reusable workflows that install packages but are not in the guard's list: the guard itself
+# installs only its own PyYAML, a tool bootstrap rather than caller packages.
+GUARD_OWN_WORKFLOWS = frozenset({"repository-hygiene-guard.yml"})
+INSTALL_ACTION = re.compile(
+    r"^(?:\./\.github-workflows|JorisJonkers-dev/github-workflows)/actions/"
+    r"(?:setup-node|setup-java-gradle|setup-package-proxy|path-buckets|api-client-publish)(?:@\S+)?$"
+)
 
 CLEAN = {
     ".github/workflows/ci.yml": """\
@@ -43,6 +55,12 @@ jobs:
     steps:
       - run: printf 'machine packages.jorisjonkers.dev\\n' >> "$HOME/.netrc"
       - run: pip install --uploaded-prior-to P7D -r requirements.txt
+  hygiene:
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/repository-hygiene-guard.yml@v0.44.0
+  add:
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/add-to-project.yml@v0.44.0
+  rel:
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/release.yml@v0.44.0
 """,
     "Dockerfile": """\
 # A build with the proxy wired in.
@@ -116,6 +134,8 @@ jobs:
   no-steps: {}
   reusable-bare:
     uses: JorisJonkers-dev/github-workflows/.github/workflows/node-ci.yml@v0.44.0
+  buckets:
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/path-buckets.yml@v0.44.0
 """,
     ".github/workflows/legacy.yml": """\
 name: Legacy
@@ -202,9 +222,9 @@ class UncoveredTree(unittest.TestCase):
         self.assertIn(11, self.at(".github/workflows/ci.yml", "uncovered-install"))
 
     def test_reusable_calls_without_the_token_are_reported(self) -> None:
-        # Line 36 calls a shared workflow with packages-token only; line 40 calls a local one;
-        # line 49 calls a shared workflow with no secrets at all.
-        self.assertEqual([36, 40, 49], self.at(".github/workflows/ci.yml", "reusable-without-token"))
+        # Line 36 calls node-ci with packages-token only; line 49 calls node-ci with no secrets;
+        # line 51 calls path-buckets with no secrets. The local call on line 40 is not an installer.
+        self.assertEqual([36, 49, 51], self.at(".github/workflows/ci.yml", "reusable-without-token"))
 
     def test_dockerfile_findings_are_scoped_per_stage(self) -> None:
         dockerfile = "Dockerfile"
@@ -244,6 +264,58 @@ class UncoveredTree(unittest.TestCase):
         _, output = run_guard(self.root, report_only=True)
         self.assertIn("package-proxy-guard: by rule:", output)
         self.assertIn("23 finding(s) in 6 file(s), 1 allowlisted, mode report", output.splitlines()[-1])
+
+
+def workflow_installs(doc: object) -> bool:
+    """True when a parsed workflow runs an installer or sets up packages itself."""
+    if not isinstance(doc, dict):
+        return False
+    for job in (doc.get("jobs") or {}).values():
+        if not isinstance(job, dict):
+            continue
+        for step in job.get("steps") or []:
+            if not isinstance(step, dict):
+                continue
+            uses = step.get("uses") or ""
+            if INSTALL_ACTION.match(uses) or uses.startswith("docker/build-push-action"):
+                return True
+            if any(guard.match_installer(line) for line in (step.get("run") or "").splitlines()):
+                return True
+    return False
+
+
+def derive_installing_workflows(root: Path) -> set[str]:
+    """Reusable workflows in root that install packages, minus the guard's own bootstrap."""
+    derived: set[str] = set()
+    for path in sorted((root / ".github" / "workflows").glob("*.yml")):
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+        on = doc.get("on", doc.get(True)) if isinstance(doc, dict) else None
+        if isinstance(on, dict) and "workflow_call" in on and workflow_installs(doc):
+            if path.name not in GUARD_OWN_WORKFLOWS:
+                derived.add(path.name)
+    return derived
+
+
+class InstallingWorkflows(unittest.TestCase):
+    def test_guard_list_matches_this_repositorys_installing_workflows(self) -> None:
+        self.assertEqual(derive_installing_workflows(REPO_ROOT), set(guard.INSTALLING_WORKFLOWS))
+
+    def test_the_named_installing_workflows_are_listed(self) -> None:
+        named = {
+            "node-ci.yml", "jvm-ci.yml", "python-ci.yml", "container-publish.yml",
+            "publish-fragment.yml", "mutation-report.yml", "publish-api-clients.yml", "path-buckets.yml",
+        }
+        self.assertTrue(named <= set(guard.INSTALLING_WORKFLOWS))
+
+    def test_add_to_project_repository_hygiene_guard_and_release_are_not_listed(self) -> None:
+        for name in ("add-to-project.yml", "repository-hygiene-guard.yml", "release.yml"):
+            self.assertNotIn(name, guard.INSTALLING_WORKFLOWS)
+
+    def test_calls_to_non_installing_workflows_are_not_flagged_fixture(self) -> None:
+        # CLEAN calls add-to-project, repository-hygiene-guard and release with no secrets.
+        root = make_tree(CLEAN)
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([], [f for f in findings if f.rule == "reusable-without-token"])
 
 
 class Allowlist(unittest.TestCase):

@@ -122,11 +122,27 @@ runs:
 
         printf '::add-mask::%s\n' "$PACKAGES_PROXY_TOKEN"
 
-        # Always $HOME/.npmrc. NPM_CONFIG_USERCONFIG may point into the workspace, so it is
-        # never read or written here. The key stays out of the project .npmrc.
         umask 077
         npm_key="$PACKAGES_PROXY_TOKEN"
+        # NPM_CONFIG_USERCONFIG is used when it points outside the workspace; setup-node with
+        # registry-url puts its file in RUNNER_TEMP. Inside the workspace it could land in the
+        # checkout, so $HOME/.npmrc is used and NPM_CONFIG_USERCONFIG is pointed at it instead.
         userconfig="$HOME/.npmrc"
+        workspace="${GITHUB_WORKSPACE:-}"
+        if [ -n "${NPM_CONFIG_USERCONFIG:-}" ]; then
+          inside=false
+          if [ -n "$workspace" ]; then
+            case "$NPM_CONFIG_USERCONFIG" in
+              "$workspace"|"$workspace"/*) inside=true ;;
+            esac
+          fi
+          if [ "$inside" = true ]; then
+            echo "::warning::NPM_CONFIG_USERCONFIG points inside the workspace; the proxy block goes to $HOME/.npmrc, and NPM_CONFIG_USERCONFIG is set to that file for later steps."
+            printf 'NPM_CONFIG_USERCONFIG=%s\n' "$HOME/.npmrc" >> "$GITHUB_ENV"
+          else
+            userconfig="$NPM_CONFIG_USERCONFIG"
+          fi
+        fi
         touch "$userconfig"
         chmod 600 "$userconfig"
         {

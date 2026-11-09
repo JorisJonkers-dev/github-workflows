@@ -10,9 +10,10 @@ packages.jorisjonkers.dev. This guard scans a checkout and reports six rules:
   or setup-node step given its token, or a run step that writes the proxy netrc or
   the proxy index variables inline. Coverage is by step order, not by if:
   conditions, which the guard does not evaluate.
-- reusable-without-token: a job that calls a reusable workflow must pass the
-  packages proxy token. It is exempt only when it calls a JorisJonkers-dev/
-  github-workflows workflow and passes secrets: inherit or PACKAGES_PROXY_TOKEN.
+- reusable-without-token: a job that calls a shared workflow which installs
+  packages (INSTALLING_WORKFLOWS) must pass the proxy token: secrets: inherit or
+  PACKAGES_PROXY_TOKEN. Other reusable calls, such as add-to-project,
+  repository-hygiene-guard and release, are not checked.
 - dockerfile-netrc: a Dockerfile RUN installs go, pip or uv packages without the
   packages-netrc secret mount, or installs npm packages without the packages-npmrc
   mount. It also reports a RUN that uses an index build arg (GOPROXY,
@@ -58,6 +59,23 @@ PROXY_HOSTS = frozenset({"packages.jorisjonkers.dev", "maven.pkg.github.com"})
 GRADLE_NAMES = frozenset({"settings.gradle", "settings.gradle.kts", "build.gradle", "build.gradle.kts"})
 SHARED_WORKFLOW_PREFIX = "JorisJonkers-dev/github-workflows/.github/workflows/"
 TOKEN_SECRET = "PACKAGES_PROXY_TOKEN"
+# The shared reusable workflows that install packages, so a caller must pass them the token.
+# tests/test_package_proxy_guard.py derives this set from the workflows of this repository and
+# fails when the two drift apart.
+INSTALLING_WORKFLOWS = frozenset(
+    {
+        "node-ci.yml",
+        "jvm-ci.yml",
+        "python-ci.yml",
+        "container-publish.yml",
+        "publish-fragment.yml",
+        "mutation-report.yml",
+        "publish-api-clients.yml",
+        "path-buckets.yml",
+        "docker-image-ci.yml",
+        "crac-train.yml",
+    }
+)
 
 # Each installer: a pattern, the manager it belongs to, and the build arg the
 # Dockerfile must declare for it (None when none is needed). The order matters:
@@ -162,11 +180,16 @@ def step_covers(step: Node) -> bool:
     return False
 
 
-def passes_token(job: Node) -> bool:
-    """True when a reusable-workflow call hands over the proxy token."""
+def calls_installing_workflow(job: Node) -> bool:
+    """True when a job calls a shared workflow in INSTALLING_WORKFLOWS."""
     uses = mapping_get(job, "uses")
     if not isinstance(uses, ScalarNode) or not uses.value.startswith(SHARED_WORKFLOW_PREFIX):
         return False
+    return uses.value[len(SHARED_WORKFLOW_PREFIX):].split("@", 1)[0] in INSTALLING_WORKFLOWS
+
+
+def passes_token(job: Node) -> bool:
+    """True when a reusable-workflow call hands over the proxy token. Callers check the call first."""
     secrets = mapping_get(job, "secrets")
     if isinstance(secrets, ScalarNode):
         return secrets.value == "inherit"
@@ -187,7 +210,7 @@ def scan_workflow(rel: str, text: str, findings: list[Finding]) -> None:
     for _, job in jobs.value:
         uses = mapping_get(job, "uses")
         if uses is not None:
-            if not passes_token(job):
+            if calls_installing_workflow(job) and not passes_token(job):
                 findings.append(
                     Finding(
                         rel,

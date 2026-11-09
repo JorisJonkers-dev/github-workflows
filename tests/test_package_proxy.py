@@ -275,3 +275,72 @@ class PackageProxyNetrcRewrite(unittest.TestCase):
         self.assertIn("default login anon password none", text)
         self.assertNotIn("OLD", text)
 
+
+@unittest.skipUnless(shutil.which("bash"), "the npm step is a bash script")
+class PackageProxyNpmConfigLocation(unittest.TestCase):
+    """The npm block goes to NPM_CONFIG_USERCONFIG outside the workspace, and to $HOME/.npmrc otherwise."""
+
+    ACTIONS = ("setup-package-proxy", "setup-node")
+
+    def _run(self, action_name: str, *, userconfig: str | None) -> tuple[str, str, str, str]:
+        action = yaml.safe_load((ROOT / "actions" / action_name / "action.yml").read_text(encoding="utf-8"))
+        step = next(s for s in action["runs"]["steps"] if s.get("name") == "Configure packages proxy for npm")
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            workspace = Path(tmp) / "ws"
+            home.mkdir()
+            workspace.mkdir()
+            github_env = Path(tmp) / "github_env"
+            github_env.write_text("", encoding="utf-8")
+            env = {
+                "HOME": str(home),
+                "PATH": os.environ.get("PATH", ""),
+                "RUNNER_TEMP": tmp,
+                "GITHUB_WORKSPACE": str(workspace),
+                "GITHUB_ENV": str(github_env),
+                "PACKAGES_PROXY_TOKEN": "TESTKEY-123",
+            }
+            if userconfig is not None:
+                env["NPM_CONFIG_USERCONFIG"] = userconfig.replace("WS", str(workspace)).replace("TMP", tmp)
+                Path(env["NPM_CONFIG_USERCONFIG"]).parent.mkdir(parents=True, exist_ok=True)
+            result = subprocess.run(
+                ["bash", "-c", "set -euo pipefail\n" + step["run"]],
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            home_npmrc = (home / ".npmrc").read_text(encoding="utf-8") if (home / ".npmrc").exists() else ""
+            target = env.get("NPM_CONFIG_USERCONFIG")
+            target_text = Path(target).read_text(encoding="utf-8") if target and Path(target).exists() else ""
+            return home_npmrc, target_text, github_env.read_text(encoding="utf-8"), result.stdout + result.stderr
+
+    def test_unset_writes_home_npmrc(self) -> None:
+        for name in self.ACTIONS:
+            with self.subTest(action=name):
+                home_npmrc, _, github_env, _ = self._run(name, userconfig=None)
+                self.assertIn("# BEGIN packages-proxy", home_npmrc)
+                self.assertIn("//packages.jorisjonkers.dev/npm/:_authToken=TESTKEY-123", home_npmrc)
+                self.assertNotIn("NPM_CONFIG_USERCONFIG", github_env)
+
+    def test_outside_the_workspace_writes_that_file(self) -> None:
+        # A sibling whose name starts with the workspace path is still outside it.
+        for name in self.ACTIONS:
+            with self.subTest(action=name):
+                home_npmrc, target_text, github_env, _ = self._run(name, userconfig="TMP/runner/.npmrc")
+                self.assertIn("# BEGIN packages-proxy", target_text)
+                self.assertNotIn("# BEGIN packages-proxy", home_npmrc)
+                self.assertNotIn("NPM_CONFIG_USERCONFIG", github_env)
+                sibling_home, sibling_target, _, _ = self._run(name, userconfig="WS-extra/.npmrc")
+                self.assertIn("# BEGIN packages-proxy", sibling_target)
+                self.assertNotIn("# BEGIN packages-proxy", sibling_home)
+
+    def test_inside_the_workspace_writes_home_and_exports_it(self) -> None:
+        for name in self.ACTIONS:
+            with self.subTest(action=name):
+                home_npmrc, target_text, github_env, output = self._run(name, userconfig="WS/.npmrc")
+                self.assertIn("# BEGIN packages-proxy", home_npmrc)
+                self.assertEqual("", target_text)
+                self.assertIn("NPM_CONFIG_USERCONFIG=", github_env)
+                self.assertIn("::warning::NPM_CONFIG_USERCONFIG points inside the workspace", output)
+
