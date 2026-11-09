@@ -58,9 +58,17 @@ on:
         required: false
         type: string
         default: ''
+      require-package-proxy:
+        description: When true, a missing PACKAGES_PROXY_TOKEN fails the job. Empty or false only warns.
+        required: false
+        type: boolean
+        default: false
     secrets:
       packages-token:
         description: GitHub Packages token used for npm package resolution.
+        required: false
+      PACKAGES_PROXY_TOKEN:
+        description: Packages proxy API token. When set, npm resolves every package through the proxy.
         required: false
 
 permissions:
@@ -105,6 +113,8 @@ jobs:
           working-directory: ${{ inputs.working-directory }}
           install-command: ${{ inputs.install-command }}
           github-packages-token: ${{ secrets.packages-token || github.token }}
+          packages-proxy-token: ${{ secrets.PACKAGES_PROXY_TOKEN }}
+          require-package-proxy: ${{ inputs.require-package-proxy }}
 
       # The vendored actions tree lives at .github-workflows/. Consuming projects exclude it from
       # linting/formatting by default (it is in the shared eslint/ktlint config ignores, the

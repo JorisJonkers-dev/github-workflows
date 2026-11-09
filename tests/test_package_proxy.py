@@ -21,10 +21,10 @@ actions:
 
 3. No token in build args. No `build-args:` value in any workflow or
    action may name PACKAGES_PROXY_TOKEN, pass the token itself
-   (`secrets.packages-proxy-token` interpolated as a value), or carry any
+   (`secrets.PACKAGES_PROXY_TOKEN` interpolated as a value), or carry any
    `${{ secrets.* }}` reference at all: values in build args are baked
    into image layers. The only allowed mention is the emptiness check
-   `secrets.packages-proxy-token != ''` that gates the conditional proxy
+   `secrets.PACKAGES_PROXY_TOKEN != ''` that gates the conditional proxy
    values.
 
 4. No token in proxy URLs. The setup-package-proxy and setup-java-gradle
@@ -54,7 +54,6 @@ PINNED_PIP_UPGRADE_RE = re.compile(
 TOKEN_REF_RE = re.compile(
     r"\$\{?PACKAGES_PROXY_TOKEN"
     r"|secrets\.PACKAGES_PROXY_TOKEN"
-    r"|secrets\.packages-proxy-token"
     r"|inputs\.packages-proxy-token"
 )
 
@@ -66,7 +65,7 @@ REDIRECT_GROUP_CLOSE_RE = re.compile(r"^\}\s*(>>?)\s*\S")
 
 # The only allowed mention of the token source in a build-args value:
 # checking that the token is set, never passing it.
-BUILD_ARG_TOKEN_CHECK_RE = re.compile(r"secrets\.packages-proxy-token\s*!=")
+BUILD_ARG_TOKEN_CHECK_RE = re.compile(r"secrets\.PACKAGES_PROXY_TOKEN\s*!=")
 
 
 def pip_install_offenses(text: str) -> list[str]:
@@ -157,11 +156,9 @@ def collect_build_arg_values(node: object) -> list[str]:
 
 def build_arg_offense(value: str) -> str | None:
     """Why a build-args value breaks the token rule, or None if clean."""
-    if "PACKAGES_PROXY_TOKEN" in value:
-        return "names the token variable"
     remainder = BUILD_ARG_TOKEN_CHECK_RE.sub("", value)
-    if "packages-proxy-token" in remainder:
-        return "passes the token itself, not only the emptiness check"
+    if "PACKAGES_PROXY_TOKEN" in remainder:
+        return "names the token, not only the emptiness check"
     if "secrets." in remainder:
         return "interpolates a secrets.* reference"
     return None

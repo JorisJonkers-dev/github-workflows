@@ -27,6 +27,15 @@ on:
         type: string
         required: false
         default: ''
+      require-package-proxy:
+        description: When true, a missing PACKAGES_PROXY_TOKEN fails the job. Empty or false only warns.
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      PACKAGES_PROXY_TOKEN:
+        description: Packages proxy API token. When set, PyYAML installs through the proxy.
+        required: false
     outputs:
       run:
         description: Every bucket and group as one JSON object of bools.
@@ -59,6 +68,8 @@ jobs:
         id: buckets
         uses: ./.github-workflows/actions/path-buckets
         with:
+          packages-proxy-token: ${{ secrets.PACKAGES_PROXY_TOKEN }}
+          require-package-proxy: ${{ inputs.require-package-proxy }}
           config: ${{ inputs.config }}
           workflows: ${{ inputs.workflows }}
           job: changes

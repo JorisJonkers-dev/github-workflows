@@ -78,9 +78,17 @@ on:
         required: false
         type: boolean
         default: true
+      require-package-proxy:
+        description: When true, a missing PACKAGES_PROXY_TOKEN fails the job. Empty or false only warns.
+        required: false
+        type: boolean
+        default: false
     secrets:
       ESTATE_DISPATCH_APP_PRIVATE_KEY:
         description: The dispatch App's private key (an organization secret). Required when compose is true.
+        required: false
+      PACKAGES_PROXY_TOKEN:
+        description: Packages proxy API token. When set, npm resolves packages through the proxy.
         required: false
     outputs:
       ref:
@@ -133,6 +141,14 @@ jobs:
           node-version: ${{ inputs.node-version }}
           registry-url: https://npm.pkg.github.com
           scope: "@jorisjonkers-dev"
+
+      - uses: ./.github-workflows/actions/setup-package-proxy
+        with:
+          token: ${{ secrets.PACKAGES_PROXY_TOKEN }}
+          require-package-proxy: ${{ inputs.require-package-proxy }}
+          go: 'false'
+          python: 'false'
+          cargo: 'false'
 
       - name: Install the toolkit at the version this workflow pins
         working-directory: .github-workflows/tools/deploy-kit

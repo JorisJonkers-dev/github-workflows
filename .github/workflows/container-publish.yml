@@ -35,11 +35,16 @@ on:
         required: false
         type: string
         default: ""
+      require-package-proxy:
+        description: When true, a missing PACKAGES_PROXY_TOKEN fails the job. Empty or false only warns.
+        required: false
+        type: boolean
+        default: false
     secrets:
       packages-token:
         description: Token passed as docker build secret github_token.
         required: false
-      packages-proxy-token:
+      PACKAGES_PROXY_TOKEN:
         description: Packages proxy API token. When set, Go and Python dependencies resolve through the packages proxy.
         required: false
 
@@ -87,11 +92,19 @@ jobs:
         shell: bash
         # secrets is not usable in a step if:, so opt-in is checked in bash.
         env:
-          PACKAGES_PROXY_TOKEN: ${{ secrets.packages-proxy-token }}
+          PACKAGES_PROXY_TOKEN: ${{ secrets.PACKAGES_PROXY_TOKEN }}
+          REQUIRE_PACKAGE_PROXY: ${{ inputs.require-package-proxy }}
         run: |
           set -euo pipefail
 
-          [ -n "$PACKAGES_PROXY_TOKEN" ] || exit 0
+          if [ -z "$PACKAGES_PROXY_TOKEN" ]; then
+            if [ "$REQUIRE_PACKAGE_PROXY" = true ]; then
+              echo "::error::PACKAGES_PROXY_TOKEN is not set and require-package-proxy is true. Pass the PACKAGES_PROXY_TOKEN secret: secrets: inherit, or the one-line form in README.md."
+              exit 1
+            fi
+            echo "::warning::PACKAGES_PROXY_TOKEN is not set; packages install without the proxy. Pass the secret, or set require-package-proxy to true to fail instead."
+            exit 0
+          fi
 
           printf '::add-mask::%s\n' "$PACKAGES_PROXY_TOKEN"
           umask 077
@@ -146,10 +159,10 @@ jobs:
           # itself only travels as the BuildKit secret file, never as a build
           # arg or in a URL.
           build-args: |
-            ${{ secrets.packages-proxy-token != '' && 'GOPROXY=https://packages.jorisjonkers.dev/go' || '' }}
-            ${{ secrets.packages-proxy-token != '' && 'PIP_INDEX_URL=https://packages.jorisjonkers.dev/pypi/simple/' || '' }}
-            ${{ secrets.packages-proxy-token != '' && 'UV_DEFAULT_INDEX=https://packages.jorisjonkers.dev/pypi/simple/' || '' }}
+            ${{ secrets.PACKAGES_PROXY_TOKEN != '' && 'GOPROXY=https://packages.jorisjonkers.dev/go' || '' }}
+            ${{ secrets.PACKAGES_PROXY_TOKEN != '' && 'PIP_INDEX_URL=https://packages.jorisjonkers.dev/pypi/simple/' || '' }}
+            ${{ secrets.PACKAGES_PROXY_TOKEN != '' && 'UV_DEFAULT_INDEX=https://packages.jorisjonkers.dev/pypi/simple/' || '' }}
           secrets: |
             github_token=${{ secrets.packages-token || github.token }}
             github_actor=${{ github.actor }}
-            ${{ secrets.packages-proxy-token != '' && format('id=packages-netrc,src={0}', steps.proxy.outputs.netrc) || '' }}
+            ${{ secrets.PACKAGES_PROXY_TOKEN != '' && format('id=packages-netrc,src={0}', steps.proxy.outputs.netrc) || '' }}

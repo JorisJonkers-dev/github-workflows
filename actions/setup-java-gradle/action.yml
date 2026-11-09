@@ -30,10 +30,38 @@ inputs:
     description: Packages proxy API token. When set, Gradle resolves dependencies through the packages proxy instead of direct upstream repositories.
     required: false
     default: ''
+  require-package-proxy:
+    description: When true, a missing packages-proxy-token fails the job. Empty or false only warns.
+    required: false
+    default: 'false'
 
 runs:
   using: composite
   steps:
+    - name: Check packages proxy token
+      shell: bash
+      env:
+        PACKAGES_PROXY_TOKEN: ${{ inputs.packages-proxy-token }}
+        REQUIRE_PACKAGE_PROXY: ${{ inputs.require-package-proxy }}
+        EVENT_NAME: ${{ github.event_name }}
+        HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        BASE_REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+
+        if [ -n "$PACKAGES_PROXY_TOKEN" ]; then
+          exit 0
+        fi
+        if [ "$EVENT_NAME" = pull_request ] && [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+          echo "::warning::PACKAGES_PROXY_TOKEN is not available to pull requests from forks; packages install without the proxy."
+          exit 0
+        fi
+        if [ "$REQUIRE_PACKAGE_PROXY" = true ]; then
+          echo "::error::PACKAGES_PROXY_TOKEN is not set and require-package-proxy is true. Pass the PACKAGES_PROXY_TOKEN secret: secrets: inherit, or the one-line form in README.md."
+          exit 1
+        fi
+        echo "::warning::PACKAGES_PROXY_TOKEN is not set; packages install without the proxy. Pass the secret, or set require-package-proxy to true to fail instead."
+
     - name: Configure GitHub Packages for Gradle
       if: ${{ inputs.github-packages-token != '' }}
       shell: bash

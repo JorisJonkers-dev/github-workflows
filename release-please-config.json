@@ -61,6 +61,14 @@
         {
           "type": "generic",
           "path": ".github/workflows/pr-title-check.yml"
+        },
+        {
+          "type": "generic",
+          "path": ".github/workflows/repository-hygiene-guard.yml"
+        },
+        {
+          "type": "generic",
+          "path": ".github/workflows/python-ci.yml"
         }
       ]
     }

@@ -61,6 +61,56 @@ jobs:
       packages-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
+## Packages Proxy Token
+
+Every reusable workflow that installs packages takes the proxy token as the
+`PACKAGES_PROXY_TOKEN` secret. A caller adds exactly one of these lines to the
+job that calls the workflow, under `uses:`:
+
+```yaml
+secrets: inherit
+```
+
+or
+
+```yaml
+secrets: { PACKAGES_PROXY_TOKEN: ${{ secrets.PACKAGES_PROXY_TOKEN }} }
+```
+
+Without the secret the job logs a warning and installs packages directly. A
+caller that also sets `require-package-proxy: true` makes an empty token fail
+the job instead. A pull request from a fork never receives secrets, so it only
+warns. Composite actions take the same token as `packages-proxy-token`.
+
+## Package Proxy Guard
+
+`repository-hygiene-guard.yml` runs `scripts/package_proxy_guard.py` over the
+caller's checkout. It reports four kinds of finding:
+
+- `uncovered-install`: an installer (npm, pnpm or yarn install or ci, pip
+  install, uv sync or pip, cargo build, fetch or install, go mod download,
+  build or test, gradle, `./gradlew` or mvn) in a job that calls no shared
+  reusable workflow and sets up no proxy with a token. `setup-node` counts when
+  given `packages-proxy-token`.
+- `dockerfile-netrc`: a `RUN` that installs packages without the
+  `--mount=type=secret,id=packages-netrc` mount, or without the `ARG` its index
+  variable needs (`GOPROXY`, `PIP_INDEX_URL`, `UV_DEFAULT_INDEX`).
+- `npmrc-registry`: a committed `.npmrc` whose `registry=` is not
+  `https://packages.jorisjonkers.dev/npm/`.
+- `gradle-repository`: a Gradle build file that names a third-party Maven
+  repository URL. `mavenCentral()`, `gradlePluginPortal()` and `google()` are
+  allowed.
+
+Installers are matched by text on `run:` lines, so an installer inside a script
+file is not seen.
+
+The input `package-proxy-guard` selects the mode. `report` (the default) prints
+the findings and passes. `enforce` fails the job. A repository migrates in
+report mode first, then opts in to `enforce`.
+
+Exceptions go in `.github/package-proxy-allow.txt`, one per line: a path glob,
+then a reason. An entry without a reason is itself a finding.
+
 ## Zero-Warning Gates
 
 `node-ci.yml` always runs ESLint through the selected package manager with
