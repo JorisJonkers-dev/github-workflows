@@ -215,6 +215,23 @@ class PackageProxyTokenPrinting(unittest.TestCase):
         self.assertEqual([], failures)
 
 
+class PackageProxyBuildKitSecretFiles(unittest.TestCase):
+    """docker/build-push-action's `secrets` input takes name=value pairs only, so a
+    `id=<name>,src=<file>` entry there mounts nothing. The proxy's netrc and npmrc are
+    files, so they belong in `secret-files` as `<name>=<path>`."""
+
+    def test_proxy_secret_files_use_the_secret_files_input(self) -> None:
+        failures = []
+        for path in WORKFLOW_FILES + ACTION_FILES:
+            rel = path.relative_to(ROOT)
+            text = path.read_text(encoding="utf-8")
+            for lineno, raw in enumerate(text.splitlines(), 1):
+                if re.search(r"id=packages-(?:netrc|npmrc),src=", raw):
+                    failures.append(f"{rel}: line {lineno}: {raw.strip()}")
+            if "packages-netrc=" in text and "secret-files:" not in text:
+                failures.append(f"{rel}: names packages-netrc but has no secret-files input")
+        self.assertEqual([], failures)
+
 class PackageProxyTokenNotInProxyUrls(unittest.TestCase):
     def test_setup_actions_keep_token_out_of_proxy_urls(self) -> None:
         paths = [

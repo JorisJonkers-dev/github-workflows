@@ -178,5 +178,8 @@ jobs:
           secrets: |
             github_token=${{ secrets.packages-token || github.token }}
             github_actor=${{ github.actor }}
-            ${{ steps.proxy.outputs.enabled == 'true' && format('id=packages-netrc,src={0}', steps.proxy.outputs.netrc) || '' }}
-            ${{ steps.proxy.outputs.enabled == 'true' && format('id=packages-npmrc,src={0}', steps.proxy.outputs.npmrc) || '' }}
+          # A file secret is mounted with --mount=type=secret,id=<name>. The secrets
+          # input takes only name=value pairs, so the files go here.
+          secret-files: |
+            ${{ steps.proxy.outputs.enabled == 'true' && format('packages-netrc={0}', steps.proxy.outputs.netrc) || '' }}
+            ${{ steps.proxy.outputs.enabled == 'true' && format('packages-npmrc={0}', steps.proxy.outputs.npmrc) || '' }}
