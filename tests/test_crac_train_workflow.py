@@ -385,7 +385,12 @@ class MigrationReusableWorkflowSurfaceTest(unittest.TestCase):
         self.assertIn("default: '@jorisjonkers-dev'", self.setup_node)
 
     def test_language_and_build_reusables_expose_expected_commands(self) -> None:
-        self.assertIn("default: python -m pip install -r requirements-dev.txt", self.python_ci)
+        self.assertIn(
+            'default: >-\n'
+            '          python -m pip install --disable-pip-version-check "pip==26.2.2"\n'
+            '          && python -m pip install --uploaded-prior-to P7D -r requirements-dev.txt',
+            self.python_ci,
+        )
         self.assertIn("default: ruff check .", self.python_ci)
         self.assertIn("default: python -m unittest discover", self.python_ci)
         self.assertIn("uses: cachix/install-nix-action@v31", self.nix_ci)

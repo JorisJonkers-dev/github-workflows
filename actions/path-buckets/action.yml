@@ -43,7 +43,9 @@ runs:
       run: |
         set -euo pipefail
         python3 -m venv "$RUNNER_TEMP/path-buckets-venv"
-        "$RUNNER_TEMP/path-buckets-venv/bin/python" -m pip install --quiet PyYAML==6.0.2
+        python="$RUNNER_TEMP/path-buckets-venv/bin/python"
+        "$python" -m pip install --disable-pip-version-check "pip==26.2.2"
+        "$python" -m pip install --uploaded-prior-to P7D --quiet PyYAML==6.0.2
 
     # The self-test runs before every decision, so the rules a run applies are
     # the rules the fixtures prove.

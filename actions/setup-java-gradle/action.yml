@@ -26,6 +26,10 @@ inputs:
     description: GitHub Packages token exposed to Gradle as GITHUB_TOKEN.
     required: false
     default: ''
+  packages-proxy-token:
+    description: Packages proxy API token. When set, Gradle resolves dependencies through the packages proxy instead of direct upstream repositories.
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -45,6 +49,78 @@ runs:
           printf 'GITHUB_ACTOR=%s\n' "$actor"
           printf 'GITHUB_TOKEN=%s\n' "$GITHUB_PACKAGES_TOKEN"
         } >> "$GITHUB_ENV"
+
+    - name: Configure packages proxy for Gradle
+      if: ${{ inputs.packages-proxy-token != '' }}
+      shell: bash
+      env:
+        PACKAGES_PROXY_TOKEN: ${{ inputs.packages-proxy-token }}
+      run: |
+        set -euo pipefail
+
+        # Mask before anything else; the token is then written to the
+        # environment for Gradle to read in later steps.
+        printf '::add-mask::%s\n' "$PACKAGES_PROXY_TOKEN"
+
+        printf 'PACKAGES_PROXY_TOKEN=%s\n' "$PACKAGES_PROXY_TOKEN" >> "$GITHUB_ENV"
+
+        init_dir="$HOME/.gradle/init.d"
+        mkdir -p "$init_dir"
+        cat > "$init_dir/packages-proxy.init.gradle.kts" <<'KTS'
+        // Route dependency resolution through the packages proxy. First-party
+        // GitHub Packages repositories stay direct; everything else is moved
+        // behind the proxy.
+        fun RepositoryHandler.usePackagesProxy() {
+            toList().filter { repository ->
+                if (repository is MavenArtifactRepository) {
+                    runCatching { repository.url?.host }.getOrNull() != "maven.pkg.github.com"
+                } else {
+                    repository !is FlatDirectoryArtifactRepository && repository !is IvyArtifactRepository
+                }
+            }.forEach { remove(it) }
+
+            maven {
+                name = "packagesProxy"
+                setUrl("https://packages.jorisjonkers.dev/maven/")
+                packagesProxyAuthentication()
+            }
+            maven {
+                name = "packagesProxySpringMilestone"
+                setUrl("https://packages.jorisjonkers.dev/maven/spring-milestone/")
+                packagesProxyAuthentication()
+            }
+            maven {
+                name = "packagesProxySonatypeSnapshots"
+                setUrl("https://packages.jorisjonkers.dev/maven/sonatype-snapshots/")
+                content { mavenContent { snapshotsOnly() } }
+                packagesProxyAuthentication()
+            }
+            maven {
+                name = "packagesProxyGoogleMaven"
+                setUrl("https://packages.jorisjonkers.dev/maven/google-maven/")
+                packagesProxyAuthentication()
+            }
+        }
+
+        fun MavenArtifactRepository.packagesProxyAuthentication() {
+            credentials(HttpHeaderCredentials::class) {
+                name = "Authorization"
+                value = "Bearer " + System.getenv("PACKAGES_PROXY_TOKEN")
+            }
+            authentication {
+                create<HttpHeaderAuthentication>("header")
+            }
+        }
+
+        settingsEvaluated {
+            pluginManagement.repositories.usePackagesProxy()
+            dependencyResolutionManagement.repositories.usePackagesProxy()
+        }
+
+        beforeProject {
+            repositories.usePackagesProxy()
+        }
+        KTS
 
     - uses: actions/setup-java@v5
       with:

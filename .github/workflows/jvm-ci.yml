@@ -47,6 +47,9 @@ on:
       packages-token:
         description: GitHub Packages token passed to Gradle as GITHUB_TOKEN.
         required: false
+      PACKAGES_PROXY_TOKEN:
+        description: Packages proxy API token passed to the setup-java-gradle action.
+        required: false
 
 permissions:
   contents: read
@@ -71,6 +74,7 @@ jobs:
           java-distribution: ${{ inputs.java-distribution }}
           java-version: ${{ inputs.java-version }}
           github-packages-token: ${{ inputs.packages-token || secrets.packages-token }}
+          packages-proxy-token: ${{ secrets.PACKAGES_PROXY_TOKEN }}
 
       - name: Run lint checks
         working-directory: ${{ inputs.working-directory }}
@@ -95,6 +99,7 @@ jobs:
           java-distribution: ${{ inputs.java-distribution }}
           java-version: ${{ inputs.java-version }}
           github-packages-token: ${{ inputs.packages-token || secrets.packages-token }}
+          packages-proxy-token: ${{ secrets.PACKAGES_PROXY_TOKEN }}
 
       - name: Run tests
         working-directory: ${{ inputs.working-directory }}
