@@ -121,11 +121,14 @@ name: 'Repository Hygiene Guard'
           'path': '.github-workflows'
           'persist-credentials': false
 
+      # The guard runs for every caller, including pull requests from forks, which get no
+      # secrets. Its only install is its own pinned PyYAML, so a missing token warns and the
+      # guard still runs, rather than failing every caller that does not pass the secret.
       - 'name': 'Set up the packages proxy for the guard'
         'uses': './.github-workflows/actions/setup-package-proxy'
         'with':
           'token': '${{ secrets.PACKAGES_PROXY_TOKEN }}'
-          'require-package-proxy': 'true'
+          'require-package-proxy': 'false'
 
       # A caller on @main between a merge and the next release has a github-workflows checkout
       # without the guard script; skip the guard with a notice rather than fail the caller.
