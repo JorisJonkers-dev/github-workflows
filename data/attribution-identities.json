@@ -1,0 +1,72 @@
+{
+  "$comment": "Who a pull request may credit (scripts/attribution_guard.py). Owner decision 2026-11-09: commits and pull requests credit the owner and automation that is not an AI agent; any AI agent or model provider is always refused. Names and emails compare case-insensitively.",
+  "people": {
+    "$comment": "The owner. An owner email under any other name is refused.",
+    "names": [
+      "J.W. Jonkers",
+      "Joris Jonkers",
+      "Joris Wouter Jonkers",
+      "ExtraToast"
+    ],
+    "emails": [
+      "info@jorisjonkers.dev",
+      "joriswouterjonkers@gmail.com",
+      "ExtraToast@users.noreply.github.com",
+      "74975850+ExtraToast@users.noreply.github.com"
+    ]
+  },
+  "automation": {
+    "$comment": "Reviewed non-AI automation whose commits are not GitHub App bot shaped. An entry without an email matches the name under any address that is not an AI provider's. GitHub App bots ([<id>+]<name>[bot]@users.noreply.github.com) need no entry unless their name carries an AI name.",
+    "identities": [
+      {"name": "estate-composition", "email": "estate-composition@users.noreply.github.com"},
+      {"name": "knowledge-ingest-worker", "email": "worker@knowledge.jorisjonkers.dev"},
+      {"name": "basic-memory-vault", "email": "basicmemory@knowledge.local"},
+      {"name": "flux"},
+      {"name": "fluxcdbot"}
+    ]
+  },
+  "non_owner_humans": {
+    "$comment": "allow: a commit author or co-author who is neither the owner nor automation passes when nothing about it names an AI (external contributors, e.g. on ESA-Blueshell repositories). refuse: only the owner, automation and non-AI bots pass.",
+    "mode": "allow"
+  },
+  "ai_names": {
+    "$comment": "AI agents, models and providers. A bot name matches on any substring; a person's name, a trailer key and a credit line match on a whole word, so gpt matches gpt-5 but pi does not match pipeline.",
+    "names": [
+      "claude", "anthropic", "opus", "sonnet", "haiku", "fable",
+      "openai", "chatgpt", "gpt", "codex",
+      "mistral", "vibe", "devstral", "codestral",
+      "glm", "zhipu", "zai",
+      "deepseek", "kimi", "moonshot", "qwen", "llama", "grok",
+      "gemini", "antigravity", "jules", "bard",
+      "opencode", "hermes", "nousresearch", "pi",
+      "copilot", "cursor", "devin", "aider", "codeium", "windsurf",
+      "tabnine", "codewhisperer", "amazon-q", "coderabbit", "sweep-ai", "llm"
+    ],
+    "$comment_person_only": "Words that mark an AI only in a person's name or address, such as \"JorisJonkers Agent\"; too common in prose and repository names (agent-kit) to match elsewhere.",
+    "person_only": ["agent"],
+    "$comment_person_exempt": "Names people carry: not matched in a person's name.",
+    "person_exempt": ["devin", "jules", "kimi", "hermes", "bard"]
+  },
+  "provider_email_domains": [
+    "anthropic.com", "claude.ai", "claude.com",
+    "openai.com", "chatgpt.com",
+    "mistral.ai",
+    "deepseek.com", "deepseek.ai",
+    "z.ai", "zhipuai.cn", "bigmodel.cn",
+    "moonshot.ai", "moonshot.cn", "x.ai",
+    "opencode.ai", "nousresearch.com",
+    "cursor.com", "cursor.sh", "anysphere.co",
+    "devin.ai", "cognition.ai",
+    "aider.chat", "codeium.com", "windsurf.com"
+  ],
+  "provider_domain_labels": [
+    "anthropic", "openai", "mistral", "deepseek", "zhipuai", "gemini",
+    "opencode", "nousresearch", "cursor", "codeium", "windsurf"
+  ],
+  "generators": [
+    "renovate",
+    "release please",
+    "release-please",
+    "dependabot"
+  ]
+}
