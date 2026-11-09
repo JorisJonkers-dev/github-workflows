@@ -47,6 +47,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The PyYAML the job installs goes through the packages proxy (JorisJonkers-dev/workspace#167).
+      - uses: ./actions/setup-package-proxy
+        with:
+          token: ${{ secrets.PACKAGES_PROXY_TOKEN }}
+          require-package-proxy: true
+
       - name: Install YAML parser
         run: |
           python3 -m venv .venv-yaml
@@ -86,6 +92,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+
+      # The coverage and PyYAML the suite installs go through the packages proxy (JorisJonkers-dev/workspace#167).
+      - uses: ./actions/setup-package-proxy
+        with:
+          token: ${{ secrets.PACKAGES_PROXY_TOKEN }}
+          require-package-proxy: true
 
       - uses: actions/setup-python@v6
         with:

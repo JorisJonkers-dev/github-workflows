@@ -121,6 +121,12 @@ name: 'Repository Hygiene Guard'
           'path': '.github-workflows'
           'persist-credentials': false
 
+      - 'name': 'Set up the packages proxy for the guard'
+        'uses': './.github-workflows/actions/setup-package-proxy'
+        'with':
+          'token': '${{ secrets.PACKAGES_PROXY_TOKEN }}'
+          'require-package-proxy': 'true'
+
       # A caller on @main between a merge and the next release has a github-workflows checkout
       # without the guard script; skip the guard with a notice rather than fail the caller.
       - 'name': 'Locate the package proxy guard'

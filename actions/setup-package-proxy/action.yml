@@ -178,6 +178,13 @@ runs:
         {
           awk '$0 == "# BEGIN packages-proxy" { skip = 1 } !skip { print } $0 == "# END packages-proxy" { skip = 0 }' "$config"
           printf '# BEGIN packages-proxy\n'
+          # Cargo sends the registry token only for a named registry in [registries], and only with
+          # the cargo:token credential provider. Without both, a source replacement of an
+          # authenticated registry fails with "authenticated registries require a credential-provider".
+          printf '[registry]\n'
+          printf 'global-credential-providers = ["cargo:token"]\n\n'
+          printf '[registries.jorisjonkers-packages]\n'
+          printf 'index = "sparse+https://packages.jorisjonkers.dev/cargo/"\n\n'
           printf '[source.crates-io]\n'
           printf 'replace-with = "jorisjonkers-packages"\n\n'
           printf '[source.jorisjonkers-packages]\n'
