@@ -33,7 +33,11 @@ actions:
 """
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -226,3 +230,48 @@ class PackageProxyTokenNotInProxyUrls(unittest.TestCase):
                 if PROXY_URL_RE.search(raw) and "PACKAGES_PROXY_TOKEN" in raw:
                     failures.append(f"{rel}: line {lineno}: {raw.strip()}")
         self.assertEqual([], failures)
+
+
+@unittest.skipUnless(shutil.which("bash"), "the netrc step is a bash script")
+class PackageProxyNetrcRewrite(unittest.TestCase):
+    """The netrc step rewrites ~/.netrc. Entries it does not own must survive, including a default entry."""
+
+    def _run_step(self, existing: str) -> str:
+        action = yaml.safe_load((ROOT / "actions" / "setup-package-proxy" / "action.yml").read_text(encoding="utf-8"))
+        step = next(s for s in action["runs"]["steps"] if s.get("name") == "Write packages proxy netrc")
+        with tempfile.TemporaryDirectory() as home:
+            netrc = Path(home) / ".netrc"
+            netrc.write_text(existing, encoding="utf-8")
+            env = {
+                "HOME": home,
+                "PATH": os.environ.get("PATH", ""),
+                "RUNNER_TEMP": home,
+                "PACKAGES_PROXY_TOKEN": "TESTKEY-123",
+            }
+            subprocess.run(
+                ["bash", "-c", "set -euo pipefail\n" + step["run"]],
+                env=env,
+                check=True,
+                capture_output=True,
+            )
+            return netrc.read_text(encoding="utf-8")
+
+    def test_leading_default_entry_survives(self) -> None:
+        text = self._run_step(
+            "default login anon password none\n"
+            "machine other.example.com\nlogin me\npassword pw\n"
+            "machine packages.jorisjonkers.dev\nlogin packages\npassword OLD\n"
+        )
+        self.assertIn("default login anon password none", text)
+        self.assertIn("machine other.example.com", text)
+        self.assertNotIn("OLD", text)
+        self.assertEqual(1, text.count("machine packages.jorisjonkers.dev"))
+
+    def test_trailing_default_entry_after_the_proxy_entry_survives(self) -> None:
+        text = self._run_step(
+            "machine packages.jorisjonkers.dev\nlogin packages\npassword OLD\n"
+            "default login anon password none\n"
+        )
+        self.assertIn("default login anon password none", text)
+        self.assertNotIn("OLD", text)
+

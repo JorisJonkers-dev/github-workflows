@@ -45,7 +45,10 @@ on:
         description: Token passed as docker build secret github_token.
         required: false
       PACKAGES_PROXY_TOKEN:
-        description: Packages proxy API token. When set, Go and Python dependencies resolve through the packages proxy.
+        description: Packages proxy API token. When set, Go, Python and npm dependencies resolve through the packages proxy.
+        required: false
+      packages-proxy-token:
+        description: Deprecated name of PACKAGES_PROXY_TOKEN, kept for callers pinned to v0.44.0. Used only when PACKAGES_PROXY_TOKEN is not passed.
         required: false
 
 permissions:
@@ -92,7 +95,7 @@ jobs:
         shell: bash
         # secrets is not usable in a step if:, so opt-in is checked in bash.
         env:
-          PACKAGES_PROXY_TOKEN: ${{ secrets.PACKAGES_PROXY_TOKEN }}
+          PACKAGES_PROXY_TOKEN: ${{ secrets.PACKAGES_PROXY_TOKEN || secrets.packages-proxy-token }}
           REQUIRE_PACKAGE_PROXY: ${{ inputs.require-package-proxy }}
         run: |
           set -euo pipefail
@@ -114,7 +117,17 @@ jobs:
             printf 'login packages\n'
             printf 'password %s\n' "$PACKAGES_PROXY_TOKEN"
           } > "$netrc"
-          printf 'netrc=%s\n' "$netrc" >> "$GITHUB_OUTPUT"
+          npmrc="$RUNNER_TEMP/packages-npmrc"
+          {
+            printf 'registry=https://packages.jorisjonkers.dev/npm/\n'
+            printf '//packages.jorisjonkers.dev/npm/:_authToken=%s\n' "$PACKAGES_PROXY_TOKEN"
+            printf '@jorisjonkers-dev:registry=https://npm.pkg.github.com\n'
+          } > "$npmrc"
+          {
+            printf 'netrc=%s\n' "$netrc"
+            printf 'npmrc=%s\n' "$npmrc"
+            printf 'enabled=true\n'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Resolve image tags
         id: image
@@ -159,10 +172,11 @@ jobs:
           # itself only travels as the BuildKit secret file, never as a build
           # arg or in a URL.
           build-args: |
-            ${{ secrets.PACKAGES_PROXY_TOKEN != '' && 'GOPROXY=https://packages.jorisjonkers.dev/go' || '' }}
-            ${{ secrets.PACKAGES_PROXY_TOKEN != '' && 'PIP_INDEX_URL=https://packages.jorisjonkers.dev/pypi/simple/' || '' }}
-            ${{ secrets.PACKAGES_PROXY_TOKEN != '' && 'UV_DEFAULT_INDEX=https://packages.jorisjonkers.dev/pypi/simple/' || '' }}
+            ${{ steps.proxy.outputs.enabled == 'true' && 'GOPROXY=https://packages.jorisjonkers.dev/go' || '' }}
+            ${{ steps.proxy.outputs.enabled == 'true' && 'PIP_INDEX_URL=https://packages.jorisjonkers.dev/pypi/simple/' || '' }}
+            ${{ steps.proxy.outputs.enabled == 'true' && 'UV_DEFAULT_INDEX=https://packages.jorisjonkers.dev/pypi/simple/' || '' }}
           secrets: |
             github_token=${{ secrets.packages-token || github.token }}
             github_actor=${{ github.actor }}
-            ${{ secrets.PACKAGES_PROXY_TOKEN != '' && format('id=packages-netrc,src={0}', steps.proxy.outputs.netrc) || '' }}
+            ${{ steps.proxy.outputs.enabled == 'true' && format('id=packages-netrc,src={0}', steps.proxy.outputs.netrc) || '' }}
+            ${{ steps.proxy.outputs.enabled == 'true' && format('id=packages-npmrc,src={0}', steps.proxy.outputs.npmrc) || '' }}

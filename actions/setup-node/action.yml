@@ -172,11 +172,11 @@ runs:
 
         printf '::add-mask::%s\n' "$PACKAGES_PROXY_TOKEN"
 
-        # setup-node points NPM_CONFIG_USERCONFIG at its own file; the proxy block goes
-        # there so npm and pnpm read it. The key stays out of the project .npmrc.
+        # Always $HOME/.npmrc. NPM_CONFIG_USERCONFIG may point into the workspace, so it is
+        # never read or written here. The key stays out of the project .npmrc.
         umask 077
         npm_key="$PACKAGES_PROXY_TOKEN"
-        userconfig="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+        userconfig="$HOME/.npmrc"
         touch "$userconfig"
         chmod 600 "$userconfig"
         {

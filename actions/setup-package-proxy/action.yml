@@ -78,7 +78,7 @@ runs:
           # Rebuild from the old file minus our entry, so re-runs and token
           # rotations do not stack stale proxy credentials.
           if [ -f "$netrc" ]; then
-            awk '$1 == "machine" { keep = $2 != "packages.jorisjonkers.dev" } keep { print }' "$netrc"
+            awk 'BEGIN { keep = 1 } $1 == "machine" { keep = $2 != "packages.jorisjonkers.dev" } $1 == "default" { keep = 1 } keep { print }' "$netrc"
           fi
           printf 'machine packages.jorisjonkers.dev\n'
           printf 'login packages\n'
@@ -122,11 +122,11 @@ runs:
 
         printf '::add-mask::%s\n' "$PACKAGES_PROXY_TOKEN"
 
-        # setup-node points NPM_CONFIG_USERCONFIG at its own file; the proxy block goes
-        # there so npm and pnpm read it. The key stays out of the project .npmrc.
+        # Always $HOME/.npmrc. NPM_CONFIG_USERCONFIG may point into the workspace, so it is
+        # never read or written here. The key stays out of the project .npmrc.
         umask 077
         npm_key="$PACKAGES_PROXY_TOKEN"
-        userconfig="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+        userconfig="$HOME/.npmrc"
         touch "$userconfig"
         chmod 600 "$userconfig"
         {

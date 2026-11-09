@@ -35,11 +35,19 @@ jobs:
   call:
     uses: JorisJonkers-dev/github-workflows/.github/workflows/node-ci.yml@v0.44.0
     secrets: inherit
+  shared:
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/python-ci.yml@v0.44.0
+    secrets:
+      PACKAGES_PROXY_TOKEN: ${{ secrets.PACKAGES_PROXY_TOKEN }}
+  inline:
+    steps:
+      - run: printf 'machine packages.jorisjonkers.dev\\n' >> "$HOME/.netrc"
+      - run: pip install --uploaded-prior-to P7D -r requirements.txt
 """,
     "Dockerfile": """\
 # A build with the proxy wired in.
 FROM golang:1.25 AS build
-
+WORKDIR /app
 ARG GOPROXY
 RUN --mount=type=secret,id=packages-netrc,target=/root/.netrc,required=false \\
     go mod download
@@ -86,7 +94,28 @@ jobs:
   pnpm:
     steps:
       - run: pnpm install
+  wrapper:
+    steps:
+      - run: ./mvnw verify
+  go-tools:
+    steps:
+      - run: go install ./cmd/tool
+      - run: go mod tidy
+  reusable-no-token:
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/node-ci.yml@v0.44.0
+    secrets:
+      packages-token: ${{ secrets.GITHUB_TOKEN }}
+  local-reusable:
+    uses: ./.github/workflows/shared.yml
+  late-cover:
+    steps:
+      - run: npm ci
+      - uses: JorisJonkers-dev/github-workflows/actions/setup-package-proxy@v0.44.0
+        with:
+          token: ${{ secrets.PACKAGES_PROXY_TOKEN }}
   no-steps: {}
+  reusable-bare:
+    uses: JorisJonkers-dev/github-workflows/.github/workflows/node-ci.yml@v0.44.0
 """,
     ".github/workflows/legacy.yml": """\
 name: Legacy
@@ -100,11 +129,15 @@ jobs:
     "Dockerfile": """\
 # Installs without the proxy.
 
+FROM golang:1.25 AS first
+ARG GOPROXY
+RUN --mount=type=secret,id=packages-netrc,target=/root/.netrc go mod download
 FROM golang:1.25
 RUN go mod download
 RUN --mount=type=secret,id=packages-netrc,target=/root/.netrc pip install -r r.txt
 RUN uv sync \\
     --frozen
+RUN npm ci
 """,
     ".npmrc": "registry=https://registry.npmjs.org/\n",
     "node_modules/some-package/.npmrc": "registry=https://registry.example.com/\n",
@@ -157,8 +190,9 @@ class UncoveredTree(unittest.TestCase):
 
     def test_uncovered_installs_report_each_line(self) -> None:
         ci = ".github/workflows/ci.yml"
-        # npm ci (setup-node without a token), the pip block, cargo (empty token), gradlew, mvn, pnpm
-        self.assertEqual([7, 11, 18, 21, 24, 27], self.at(ci, "uncovered-install"))
+        # npm ci (setup-node without a token), pip, cargo (empty token), gradlew, mvn, pnpm,
+        # ./mvnw, go install, go mod tidy, and npm ci before the proxy step (order matters).
+        self.assertEqual([7, 11, 18, 21, 24, 27, 30, 33, 34, 43], self.at(ci, "uncovered-install"))
         messages = [f.message for f in self.findings if f.path == ci and f.rule == "uncovered-install"]
         self.assertTrue(messages[0].startswith("npm ci runs outside the packages proxy"))
         self.assertTrue(messages[1].startswith("pip install runs outside the packages proxy"))
@@ -167,15 +201,22 @@ class UncoveredTree(unittest.TestCase):
         # run: | starts on line 10; its first content line is line 11.
         self.assertIn(11, self.at(".github/workflows/ci.yml", "uncovered-install"))
 
-    def test_dockerfile_findings_name_the_missing_mount_or_arg(self) -> None:
+    def test_reusable_calls_without_the_token_are_reported(self) -> None:
+        # Line 36 calls a shared workflow with packages-token only; line 40 calls a local one;
+        # line 49 calls a shared workflow with no secrets at all.
+        self.assertEqual([36, 40, 49], self.at(".github/workflows/ci.yml", "reusable-without-token"))
+
+    def test_dockerfile_findings_are_scoped_per_stage(self) -> None:
         dockerfile = "Dockerfile"
-        # go on line 4: no netrc mount and no ARG GOPROXY; pip on 5: no ARG PIP_INDEX_URL;
-        # uv on 6 (a continued RUN): no netrc mount and no ARG UV_DEFAULT_INDEX.
-        self.assertEqual([4, 4, 5, 6, 6], self.at(dockerfile, "dockerfile-netrc"))
+        # Line 7 is in a new stage, so GOPROXY from the first stage does not count there.
+        # Line 8: pip without ARG PIP_INDEX_URL. Lines 9 (uv) and 11 (npm) lack their mounts.
+        self.assertEqual([7, 7, 8, 9, 9, 11], self.at(dockerfile, "dockerfile-netrc"))
         messages = [f.message for f in self.findings if f.path == dockerfile]
-        self.assertTrue(any("ARG GOPROXY" in m for m in messages))
-        self.assertTrue(any("ARG PIP_INDEX_URL" in m for m in messages))
-        self.assertTrue(any("ARG UV_DEFAULT_INDEX" in m for m in messages))
+        self.assertTrue(any("does not declare ARG GOPROXY" in m for m in messages))
+        self.assertTrue(any("does not declare ARG PIP_INDEX_URL" in m for m in messages))
+        self.assertTrue(any("does not declare ARG UV_DEFAULT_INDEX" in m for m in messages))
+        self.assertTrue(any("without the packages-npmrc secret mount" in m for m in messages))
+        self.assertTrue(any("without the packages-netrc secret mount" in m for m in messages))
 
     def test_npmrc_and_gradle_findings(self) -> None:
         self.assertEqual([1], self.at(".npmrc", "npmrc-registry"))
@@ -202,7 +243,7 @@ class UncoveredTree(unittest.TestCase):
     def test_summary_counts(self) -> None:
         _, output = run_guard(self.root, report_only=True)
         self.assertIn("package-proxy-guard: by rule:", output)
-        self.assertIn("15 finding(s) in 6 file(s), 1 allowlisted, mode report", output.splitlines()[-1])
+        self.assertIn("23 finding(s) in 6 file(s), 1 allowlisted, mode report", output.splitlines()[-1])
 
 
 class Allowlist(unittest.TestCase):
@@ -226,8 +267,7 @@ class Allowlist(unittest.TestCase):
 class Main(unittest.TestCase):
     def test_main_runs_against_a_root_and_returns_the_exit_code(self) -> None:
         root = make_tree(CLEAN)
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
+        with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(0, guard.main(["--root", str(root)]))
         bad = make_tree(UNCOVERED)
         with contextlib.redirect_stdout(io.StringIO()):

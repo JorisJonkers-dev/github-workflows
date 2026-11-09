@@ -87,7 +87,7 @@ runs:
           netrc="$HOME/.netrc"
           {
             if [ -f "$netrc" ]; then
-              awk '$1 == "machine" { keep = $2 != "packages.jorisjonkers.dev" } keep { print }' "$netrc"
+              awk 'BEGIN { keep = 1 } $1 == "machine" { keep = $2 != "packages.jorisjonkers.dev" } $1 == "default" { keep = 1 } keep { print }' "$netrc"
             fi
             printf 'machine packages.jorisjonkers.dev\n'
             printf 'login packages\n'

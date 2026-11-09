@@ -2,20 +2,30 @@
 """Find package installs in a caller's checkout that bypass the packages proxy.
 
 Every JorisJonkers-dev repository installs third-party packages through
-packages.jorisjonkers.dev. This guard scans a checkout and reports:
+packages.jorisjonkers.dev. This guard scans a checkout and reports six rules:
 
 - uncovered-install: a workflow step runs an installer (npm, pnpm, yarn, pip,
-  uv, cargo, go, gradle, mvn) in a job that neither calls a shared reusable
-  workflow nor sets up the proxy with a token (setup-package-proxy,
-  setup-java-gradle or setup-node with packages-proxy-token).
-- dockerfile-netrc: a Dockerfile RUN installs packages without the
-  packages-netrc secret mount, or without the ARG its index variable needs
-  (GOPROXY, PIP_INDEX_URL, UV_DEFAULT_INDEX).
+  uv, cargo, go, gradle, ./gradlew, mvn, ./mvnw) in a job that sets up the proxy
+  with a token before it. A covering step is a setup-package-proxy, setup-java-gradle
+  or setup-node step given its token, or a run step that writes the proxy netrc or
+  the proxy index variables inline. Coverage is by step order, not by if:
+  conditions, which the guard does not evaluate.
+- reusable-without-token: a job that calls a reusable workflow must pass the
+  packages proxy token. It is exempt only when it calls a JorisJonkers-dev/
+  github-workflows workflow and passes secrets: inherit or PACKAGES_PROXY_TOKEN.
+- dockerfile-netrc: a Dockerfile RUN installs go, pip or uv packages without the
+  packages-netrc secret mount, or installs npm packages without the packages-npmrc
+  mount. It also reports a RUN that uses an index build arg (GOPROXY,
+  PIP_INDEX_URL, UV_DEFAULT_INDEX) its stage does not declare. A FROM starts a
+  new stage, so ARG declarations do not carry across stages.
 - npmrc-registry: a committed .npmrc sets registry= to anything but the proxy.
 - gradle-repository: a Gradle build file names a third-party Maven repository
   URL directly. mavenCentral(), gradlePluginPortal() and google() are allowed,
   because the init script replaces them in CI.
 - allowlist: an entry in .github/package-proxy-allow.txt has no reason.
+
+OS packages (apt, apk) are out of scope. Installers are matched by text on run:
+lines, so an installer inside a script file is not seen.
 
 Allowlist lines are "<path glob> <reason>". A finding whose path matches an
 entry is counted as allowlisted rather than reported.
@@ -46,9 +56,12 @@ DEFAULT_ALLOWLIST = ".github/package-proxy-allow.txt"
 PROXY_NPM = "https://packages.jorisjonkers.dev/npm/"
 PROXY_HOSTS = frozenset({"packages.jorisjonkers.dev", "maven.pkg.github.com"})
 GRADLE_NAMES = frozenset({"settings.gradle", "settings.gradle.kts", "build.gradle", "build.gradle.kts"})
+SHARED_WORKFLOW_PREFIX = "JorisJonkers-dev/github-workflows/.github/workflows/"
+TOKEN_SECRET = "PACKAGES_PROXY_TOKEN"
 
-# Each installer: a pattern, the manager it belongs to, and the index variable the
-# Dockerfile must declare for it (None when only the netrc mount matters).
+# Each installer: a pattern, the manager it belongs to, and the build arg the
+# Dockerfile must declare for it (None when none is needed). The order matters:
+# the first match names the command.
 INSTALLERS = (
     (re.compile(r"\bnpm (install|i|ci)\b"), "node", None),
     (re.compile(r"\bpnpm (install|i)\b"), "node", None),
@@ -56,22 +69,33 @@ INSTALLERS = (
     (re.compile(r"\buv (sync|pip)\b"), "python", "UV_DEFAULT_INDEX"),
     (re.compile(r"\bpip3? install\b"), "python", "PIP_INDEX_URL"),
     (re.compile(r"\bcargo (build|fetch|install)\b"), "cargo", None),
-    (re.compile(r"\bgo (mod download|build|test)\b"), "go", "GOPROXY"),
-    (re.compile(r"\bgradle\b|\./gradlew\b"), "jvm", None),
+    (re.compile(r"\bgo (mod (download|tidy)|build|test|install)\b"), "go", "GOPROXY"),
+    (re.compile(r"\bgradle\b|\./gradlew\b|\./mvnw\b"), "jvm", None),
     (re.compile(r"\bmvn\b"), "jvm", None),
 )
 
-# A step that sets up the proxy, with the token given. setup-node counts only when
-# it is given packages-proxy-token, which is the same token under its own name.
+# The Dockerfile secret mount each manager's installs need. Cargo and jvm have none.
+MOUNTS = {
+    "node": "id=packages-npmrc",
+    "python": "id=packages-netrc",
+    "go": "id=packages-netrc",
+}
+
+# A step that sets up the proxy with its token, as an action.
 COVERING_USES = re.compile(
     r"^(?:JorisJonkers-dev/github-workflows|\./\.github-workflows)/actions/"
     r"(?:setup-package-proxy|setup-java-gradle|setup-node)(?:@\S+)?$"
 )
 TOKEN_KEYS = ("token", "packages-proxy-token")
+# A run step that sets up the proxy inline: the netrc, an index variable, or the npm registry.
+INLINE_PROXY_RE = re.compile(
+    r"machine packages\.jorisjonkers\.dev"
+    r"|(?:PIP_INDEX_URL|UV_DEFAULT_INDEX|GOPROXY)=https://packages\.jorisjonkers\.dev"
+    r"|registry=https://packages\.jorisjonkers\.dev/npm/"
+)
 URL_RE = re.compile(r"https?://[^\s\"')]+")
 GRADLE_KEYWORD_RE = re.compile(r"maven|url|uri\(")
 NPMRC_REGISTRY_RE = re.compile(r"^\s*registry\s*=\s*(\S+)")
-NETRC_MOUNT = "id=packages-netrc"
 
 
 @dataclass(frozen=True)
@@ -123,7 +147,10 @@ def line_of(scalar: ScalarNode, index: int) -> int:
 
 
 def step_covers(step: Node) -> bool:
-    """True when a step sets up the proxy with its token."""
+    """True when a step sets up the proxy: an action given its token, or an inline setup."""
+    run = mapping_get(step, "run")
+    if isinstance(run, ScalarNode) and INLINE_PROXY_RE.search(run.value):
+        return True
     uses = mapping_get(step, "uses")
     if not isinstance(uses, ScalarNode) or not COVERING_USES.match(uses.value):
         return False
@@ -132,6 +159,19 @@ def step_covers(step: Node) -> bool:
         value = mapping_get(with_node, key)
         if isinstance(value, ScalarNode) and value.value.strip():
             return True
+    return False
+
+
+def passes_token(job: Node) -> bool:
+    """True when a reusable-workflow call hands over the proxy token."""
+    uses = mapping_get(job, "uses")
+    if not isinstance(uses, ScalarNode) or not uses.value.startswith(SHARED_WORKFLOW_PREFIX):
+        return False
+    secrets = mapping_get(job, "secrets")
+    if isinstance(secrets, ScalarNode):
+        return secrets.value == "inherit"
+    if isinstance(secrets, MappingNode):
+        return any(key.value.upper() == TOKEN_SECRET for key, _ in secrets.value)
     return False
 
 
@@ -145,25 +185,39 @@ def scan_workflow(rel: str, text: str, findings: list[Finding]) -> None:
     if jobs is None:
         return
     for _, job in jobs.value:
-        if mapping_get(job, "uses") is not None:
+        uses = mapping_get(job, "uses")
+        if uses is not None:
+            if not passes_token(job):
+                findings.append(
+                    Finding(
+                        rel,
+                        uses.start_mark.line + 1,
+                        "reusable-without-token",
+                        "reusable workflow call must pass the packages proxy token: "
+                        "secrets: inherit, or PACKAGES_PROXY_TOKEN, from a JorisJonkers-dev/github-workflows call",
+                    )
+                )
             continue
         steps_node = mapping_get(job, "steps")
         steps = steps_node.value if isinstance(steps_node, SequenceNode) else []
-        covered = any(step_covers(step) for step in steps)
-        for step in steps:
+        covering = [index for index, step in enumerate(steps) if step_covers(step)]
+        first_cover = covering[0] if covering else None
+        for index, step in enumerate(steps):
             run = mapping_get(step, "run")
-            if not isinstance(run, ScalarNode) or covered:
+            if not isinstance(run, ScalarNode):
                 continue
-            for index, line in enumerate(run.value.splitlines()):
+            if first_cover is not None and first_cover < index:
+                continue
+            for line_index, line in enumerate(run.value.splitlines()):
                 hit = match_installer(line)
                 if hit:
                     findings.append(
                         Finding(
                             rel,
-                            line_of(run, index),
+                            line_of(run, line_index),
                             "uncovered-install",
                             f"{hit.command} runs outside the packages proxy: set up "
-                            "actions/setup-package-proxy with its token, or call a shared reusable workflow",
+                            "actions/setup-package-proxy with its token before it, or call a shared reusable workflow",
                         )
                     )
 
@@ -189,26 +243,37 @@ def dockerfile_instructions(text: str):
 
 
 def scan_dockerfile(rel: str, text: str, findings: list[Finding]) -> None:
-    instructions = list(dockerfile_instructions(text))
     declared: set[str] = set()
-    for _, instruction in instructions:
+    for number, instruction in dockerfile_instructions(text):
         words = instruction.split()
-        if len(words) > 1 and words[0].upper() == "ARG":
+        keyword = words[0].upper() if words else ""
+        if keyword == "FROM":
+            declared = set()
+        elif keyword == "ARG" and len(words) > 1:
             declared.add(words[1].split("=")[0])
-    for number, instruction in instructions:
-        if not instruction.upper().startswith("RUN "):
-            continue
-        hit = match_installer(instruction)
-        if hit is None:
-            continue
-        if NETRC_MOUNT not in instruction:
-            findings.append(
-                Finding(rel, number, "dockerfile-netrc", f"RUN installs packages ({hit.command}) without the packages-netrc secret mount")
-            )
-        if hit.index is not None and hit.index not in declared:
-            findings.append(
-                Finding(rel, number, "dockerfile-netrc", f"RUN installs packages ({hit.command}) but the Dockerfile does not declare ARG {hit.index}")
-            )
+        elif keyword == "RUN":
+            hit = match_installer(instruction)
+            if hit is None:
+                continue
+            mount = MOUNTS.get(hit.manager)
+            if mount is not None and mount not in instruction:
+                findings.append(
+                    Finding(
+                        rel,
+                        number,
+                        "dockerfile-netrc",
+                        f"RUN installs packages ({hit.command}) without the {mount.removeprefix('id=')} secret mount",
+                    )
+                )
+            if hit.index is not None and hit.index not in declared:
+                findings.append(
+                    Finding(
+                        rel,
+                        number,
+                        "dockerfile-netrc",
+                        f"RUN installs packages ({hit.command}) but its stage does not declare ARG {hit.index}",
+                    )
+                )
 
 
 def scan_npmrc(rel: str, text: str, findings: list[Finding]) -> None:

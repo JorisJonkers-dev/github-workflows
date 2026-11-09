@@ -121,7 +121,22 @@ name: 'Repository Hygiene Guard'
           'path': '.github-workflows'
           'persist-credentials': false
 
+      # A caller on @main between a merge and the next release has a github-workflows checkout
+      # without the guard script; skip the guard with a notice rather than fail the caller.
+      - 'name': 'Locate the package proxy guard'
+        'id': 'guard-script'
+        'run': |
+          set -euo pipefail
+
+          if [ -f .github-workflows/scripts/package_proxy_guard.py ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::.github-workflows has no package_proxy_guard.py at its pinned release; the package proxy guard is skipped."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - 'name': 'Install PyYAML for the package proxy guard'
+        'if': "${{ steps.guard-script.outputs.present == 'true' }}"
         'env':
           'PACKAGES_PROXY_TOKEN': '${{ secrets.PACKAGES_PROXY_TOKEN }}'
         'run': |
@@ -137,7 +152,7 @@ name: 'Repository Hygiene Guard'
             netrc="$HOME/.netrc"
             {
               if [ -f "$netrc" ]; then
-                awk '$1 == "machine" { keep = $2 != "packages.jorisjonkers.dev" } keep { print }' "$netrc"
+                awk 'BEGIN { keep = 1 } $1 == "machine" { keep = $2 != "packages.jorisjonkers.dev" } $1 == "default" { keep = 1 } keep { print }' "$netrc"
               fi
               printf 'machine packages.jorisjonkers.dev\n'
               printf 'login packages\n'
@@ -153,6 +168,7 @@ name: 'Repository Hygiene Guard'
           "$python" -m pip install --uploaded-prior-to P7D "${index_args[@]}" --quiet PyYAML==6.0.2
 
       - 'name': 'Check package proxy use'
+        'if': "${{ steps.guard-script.outputs.present == 'true' }}"
         'env':
           'PACKAGE_PROXY_GUARD': '${{ inputs.package-proxy-guard }}'
         'run': |

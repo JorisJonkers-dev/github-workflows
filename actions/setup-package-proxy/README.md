@@ -49,7 +49,7 @@ With a token set, the action
    - `PIP_INDEX_URL=https://packages.jorisjonkers.dev/pypi/simple/` and
      `UV_DEFAULT_INDEX=https://packages.jorisjonkers.dev/pypi/simple/`.
    - `CARGO_REGISTRIES_JORISJONKERS_PACKAGES_TOKEN=Bearer <token>`, masked.
-4. Writes the npm user config, `${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}` (mode
+4. Writes the npm user config, `$HOME/.npmrc` (mode
    600), between `# BEGIN packages-proxy` and `# END packages-proxy` markers.
    The block sets `registry=https://packages.jorisjonkers.dev/npm/` and the
    token for that registry, and keeps `@jorisjonkers-dev` on
