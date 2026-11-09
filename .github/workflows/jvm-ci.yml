@@ -43,6 +43,11 @@ on:
         required: false
         type: string
         default: ''
+      require-package-proxy:
+        description: When true, a missing PACKAGES_PROXY_TOKEN fails the job. Empty or false only warns.
+        required: false
+        type: boolean
+        default: false
     secrets:
       packages-token:
         description: GitHub Packages token passed to Gradle as GITHUB_TOKEN.
@@ -75,6 +80,7 @@ jobs:
           java-version: ${{ inputs.java-version }}
           github-packages-token: ${{ inputs.packages-token || secrets.packages-token }}
           packages-proxy-token: ${{ secrets.PACKAGES_PROXY_TOKEN }}
+          require-package-proxy: ${{ inputs.require-package-proxy }}
 
       - name: Run lint checks
         working-directory: ${{ inputs.working-directory }}
@@ -100,6 +106,7 @@ jobs:
           java-version: ${{ inputs.java-version }}
           github-packages-token: ${{ inputs.packages-token || secrets.packages-token }}
           packages-proxy-token: ${{ secrets.PACKAGES_PROXY_TOKEN }}
+          require-package-proxy: ${{ inputs.require-package-proxy }}
 
       - name: Run tests
         working-directory: ${{ inputs.working-directory }}

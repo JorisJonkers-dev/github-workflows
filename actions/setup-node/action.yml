@@ -34,10 +34,42 @@ inputs:
     description: npm registry URL used for the configured GitHub Packages scope.
     required: false
     default: https://npm.pkg.github.com
+  packages-proxy-token:
+    description: Packages proxy API token. When set, npm resolves every package through the packages proxy.
+    required: false
+    default: ''
+  require-package-proxy:
+    description: When true, a missing packages-proxy-token fails the job. Empty or false only warns.
+    required: false
+    default: 'false'
 
 runs:
   using: composite
   steps:
+    - name: Check packages proxy token
+      shell: bash
+      env:
+        PACKAGES_PROXY_TOKEN: ${{ inputs.packages-proxy-token }}
+        REQUIRE_PACKAGE_PROXY: ${{ inputs.require-package-proxy }}
+        EVENT_NAME: ${{ github.event_name }}
+        HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        BASE_REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+
+        if [ -n "$PACKAGES_PROXY_TOKEN" ]; then
+          exit 0
+        fi
+        if [ "$EVENT_NAME" = pull_request ] && [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+          echo "::warning::PACKAGES_PROXY_TOKEN is not available to pull requests from forks; packages install without the proxy."
+          exit 0
+        fi
+        if [ "$REQUIRE_PACKAGE_PROXY" = true ]; then
+          echo "::error::PACKAGES_PROXY_TOKEN is not set and require-package-proxy is true. Pass the PACKAGES_PROXY_TOKEN secret: secrets: inherit, or the one-line form in README.md."
+          exit 1
+        fi
+        echo "::warning::PACKAGES_PROXY_TOKEN is not set; packages install without the proxy. Pass the secret, or set require-package-proxy to true to fail instead."
+
     - name: Validate package manager
       shell: bash
       env:
@@ -129,6 +161,50 @@ runs:
         } >> "$npmrc_path"
 
         printf 'NODE_AUTH_TOKEN=%s\n' "$GITHUB_PACKAGES_TOKEN" >> "$GITHUB_ENV"
+
+    - name: Configure packages proxy for npm
+      if: ${{ inputs.packages-proxy-token != '' }}
+      shell: bash
+      env:
+        PACKAGES_PROXY_TOKEN: ${{ inputs.packages-proxy-token }}
+      run: |
+        set -euo pipefail
+
+        printf '::add-mask::%s\n' "$PACKAGES_PROXY_TOKEN"
+
+        umask 077
+        npm_key="$PACKAGES_PROXY_TOKEN"
+        # NPM_CONFIG_USERCONFIG is used when it points outside the workspace; setup-node with
+        # registry-url puts its file in RUNNER_TEMP. Inside the workspace it could land in the
+        # checkout, so $HOME/.npmrc is used and NPM_CONFIG_USERCONFIG is pointed at it instead.
+        userconfig="$HOME/.npmrc"
+        workspace="${GITHUB_WORKSPACE:-}"
+        if [ -n "${NPM_CONFIG_USERCONFIG:-}" ]; then
+          inside=false
+          if [ -n "$workspace" ]; then
+            case "$NPM_CONFIG_USERCONFIG" in
+              "$workspace"|"$workspace"/*) inside=true ;;
+            esac
+          fi
+          if [ "$inside" = true ]; then
+            echo "::warning::NPM_CONFIG_USERCONFIG points inside the workspace; the proxy block goes to $HOME/.npmrc, and NPM_CONFIG_USERCONFIG is set to that file for later steps."
+            printf 'NPM_CONFIG_USERCONFIG=%s\n' "$HOME/.npmrc" >> "$GITHUB_ENV"
+          else
+            userconfig="$NPM_CONFIG_USERCONFIG"
+          fi
+        fi
+        touch "$userconfig"
+        chmod 600 "$userconfig"
+        {
+          awk '$0 == "# BEGIN packages-proxy" { skip = 1 } !skip { print } $0 == "# END packages-proxy" { skip = 0 }' "$userconfig"
+          printf '# BEGIN packages-proxy\n'
+          printf 'registry=https://packages.jorisjonkers.dev/npm/\n'
+          printf '//packages.jorisjonkers.dev/npm/:_authToken=%s\n' "$npm_key"
+          printf '@jorisjonkers-dev:registry=https://npm.pkg.github.com\n'
+          printf '# END packages-proxy\n'
+        } > "$userconfig.tmp"
+        mv "$userconfig.tmp" "$userconfig"
+        chmod 600 "$userconfig"
 
     - name: Install dependencies
       shell: bash

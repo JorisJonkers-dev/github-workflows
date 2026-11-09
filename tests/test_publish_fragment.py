@@ -300,7 +300,10 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("contents: write", job)
 
     def test_every_third_party_action_is_pinned_to_a_commit(self):
+        # A local action (./.github-workflows/...) comes from the checkout pinned above, not a third party.
         for uses in re.findall(r"uses: (\S+)", self.text):
+            if uses.startswith("./"):
+                continue
             self.assertRegex(uses, r"@[0-9a-f]{40}$", uses)
 
     def test_the_lock_is_fetched_outside_the_checkout_and_only_when_named(self):

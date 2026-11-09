@@ -37,6 +37,15 @@ on:
         required: false
         type: string
         default: .
+      require-package-proxy:
+        description: When true, a missing PACKAGES_PROXY_TOKEN fails the job. Empty or false only warns.
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      PACKAGES_PROXY_TOKEN:
+        description: Packages proxy API token. When set, pip and uv resolve packages through the proxy.
+        required: false
 
 permissions:
   contents: read
@@ -49,9 +58,24 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: actions/checkout@v7
+        with:
+          repository: JorisJonkers-dev/github-workflows
+          ref: v0.44.0 # x-release-please-version
+          path: .github-workflows
+          persist-credentials: false
+
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ inputs.python-version }}
+
+      - uses: ./.github-workflows/actions/setup-package-proxy
+        with:
+          token: ${{ secrets.PACKAGES_PROXY_TOKEN }}
+          require-package-proxy: ${{ inputs.require-package-proxy }}
+          go: 'false'
+          node: 'false'
+          cargo: 'false'
 
       - name: Install dependencies
         if: ${{ inputs.install-command != '' }}

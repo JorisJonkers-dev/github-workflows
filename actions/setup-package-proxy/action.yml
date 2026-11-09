@@ -1,16 +1,21 @@
 name: Setup Packages Proxy
 description: >-
-  Credentials and environment for the packages proxy. Writes a netrc file and
-  exports Go and Python package manager variables so downloads go through the
-  proxy. A no-op without a token.
+  Credentials and environment for the packages proxy. Writes a netrc file, an
+  npm config and a Cargo config, and exports Go and Python package manager
+  variables so downloads go through the proxy. Without a token it warns (or
+  fails when require-package-proxy is true); a fork pull request only warns.
 
 inputs:
   token:
     description: >-
       Packages proxy API token, typically secrets.PACKAGES_PROXY_TOKEN. Empty
-      leaves everything at today's direct-upstream behaviour.
+      warns (or fails with require-package-proxy) and leaves downloads direct.
     required: false
     default: ''
+  require-package-proxy:
+    description: When true, a missing token fails the job. Empty or false only warns.
+    required: false
+    default: 'false'
   go:
     description: Export GOPROXY and GOPRIVATE so Go module downloads use the proxy.
     required: false
@@ -19,10 +24,42 @@ inputs:
     description: Export PIP_INDEX_URL and UV_DEFAULT_INDEX so Python packages use the proxy.
     required: false
     default: 'true'
+  node:
+    description: Write an npm user config so npm, pnpm and yarn use the proxy registry.
+    required: false
+    default: 'true'
+  cargo:
+    description: Write a Cargo config that replaces crates.io with the proxy and export its token.
+    required: false
+    default: 'true'
 
 runs:
   using: composite
   steps:
+    - name: Check packages proxy token
+      shell: bash
+      env:
+        PACKAGES_PROXY_TOKEN: ${{ inputs.token }}
+        REQUIRE_PACKAGE_PROXY: ${{ inputs.require-package-proxy }}
+        EVENT_NAME: ${{ github.event_name }}
+        HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        BASE_REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+
+        if [ -n "$PACKAGES_PROXY_TOKEN" ]; then
+          exit 0
+        fi
+        if [ "$EVENT_NAME" = pull_request ] && [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+          echo "::warning::PACKAGES_PROXY_TOKEN is not available to pull requests from forks; packages install without the proxy."
+          exit 0
+        fi
+        if [ "$REQUIRE_PACKAGE_PROXY" = true ]; then
+          echo "::error::PACKAGES_PROXY_TOKEN is not set and require-package-proxy is true. Pass the PACKAGES_PROXY_TOKEN secret: secrets: inherit, or the one-line form in README.md."
+          exit 1
+        fi
+        echo "::warning::PACKAGES_PROXY_TOKEN is not set; packages install without the proxy. Pass the secret, or set require-package-proxy to true to fail instead."
+
     - name: Write packages proxy netrc
       if: ${{ inputs.token != '' }}
       shell: bash
@@ -41,12 +78,13 @@ runs:
           # Rebuild from the old file minus our entry, so re-runs and token
           # rotations do not stack stale proxy credentials.
           if [ -f "$netrc" ]; then
-            awk '$1 == "machine" { keep = $2 != "packages.jorisjonkers.dev" } keep { print }' "$netrc"
+            awk 'BEGIN { keep = 1 } $1 == "machine" { keep = $2 != "packages.jorisjonkers.dev" } $1 == "default" { keep = 1 } keep { print }' "$netrc"
           fi
           printf 'machine packages.jorisjonkers.dev\n'
           printf 'login packages\n'
           printf 'password %s\n' "$PACKAGES_PROXY_TOKEN"
-        } > "$netrc"
+        } > "$netrc.tmp"
+        mv "$netrc.tmp" "$netrc"
         chmod 600 "$netrc"
 
     - name: Export package proxy environment
@@ -73,3 +111,82 @@ runs:
             printf 'UV_DEFAULT_INDEX=https://packages.jorisjonkers.dev/pypi/simple/\n'
           } >> "$GITHUB_ENV"
         fi
+
+    - name: Configure packages proxy for npm
+      if: ${{ inputs.token != '' && inputs.node == 'true' }}
+      shell: bash
+      env:
+        PACKAGES_PROXY_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+
+        printf '::add-mask::%s\n' "$PACKAGES_PROXY_TOKEN"
+
+        umask 077
+        npm_key="$PACKAGES_PROXY_TOKEN"
+        # NPM_CONFIG_USERCONFIG is used when it points outside the workspace; setup-node with
+        # registry-url puts its file in RUNNER_TEMP. Inside the workspace it could land in the
+        # checkout, so $HOME/.npmrc is used and NPM_CONFIG_USERCONFIG is pointed at it instead.
+        userconfig="$HOME/.npmrc"
+        workspace="${GITHUB_WORKSPACE:-}"
+        if [ -n "${NPM_CONFIG_USERCONFIG:-}" ]; then
+          inside=false
+          if [ -n "$workspace" ]; then
+            case "$NPM_CONFIG_USERCONFIG" in
+              "$workspace"|"$workspace"/*) inside=true ;;
+            esac
+          fi
+          if [ "$inside" = true ]; then
+            echo "::warning::NPM_CONFIG_USERCONFIG points inside the workspace; the proxy block goes to $HOME/.npmrc, and NPM_CONFIG_USERCONFIG is set to that file for later steps."
+            printf 'NPM_CONFIG_USERCONFIG=%s\n' "$HOME/.npmrc" >> "$GITHUB_ENV"
+          else
+            userconfig="$NPM_CONFIG_USERCONFIG"
+          fi
+        fi
+        touch "$userconfig"
+        chmod 600 "$userconfig"
+        {
+          awk '$0 == "# BEGIN packages-proxy" { skip = 1 } !skip { print } $0 == "# END packages-proxy" { skip = 0 }' "$userconfig"
+          printf '# BEGIN packages-proxy\n'
+          printf 'registry=https://packages.jorisjonkers.dev/npm/\n'
+          printf '//packages.jorisjonkers.dev/npm/:_authToken=%s\n' "$npm_key"
+          printf '@jorisjonkers-dev:registry=https://npm.pkg.github.com\n'
+          printf '# END packages-proxy\n'
+        } > "$userconfig.tmp"
+        mv "$userconfig.tmp" "$userconfig"
+        chmod 600 "$userconfig"
+
+    - name: Configure packages proxy for Cargo
+      if: ${{ inputs.token != '' && inputs.cargo == 'true' }}
+      shell: bash
+      env:
+        PACKAGES_PROXY_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+
+        printf '::add-mask::%s\n' "$PACKAGES_PROXY_TOKEN"
+        printf '::add-mask::Bearer %s\n' "$PACKAGES_PROXY_TOKEN"
+
+        # Source replacement: crates.io is served by the proxy's Cargo registry. The
+        # token travels only as a masked environment variable, never in the config.
+        umask 077
+        cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+        mkdir -p "$cargo_home"
+        config="$cargo_home/config.toml"
+        touch "$config"
+        chmod 600 "$config"
+        {
+          awk '$0 == "# BEGIN packages-proxy" { skip = 1 } !skip { print } $0 == "# END packages-proxy" { skip = 0 }' "$config"
+          printf '# BEGIN packages-proxy\n'
+          printf '[source.crates-io]\n'
+          printf 'replace-with = "jorisjonkers-packages"\n\n'
+          printf '[source.jorisjonkers-packages]\n'
+          printf 'registry = "sparse+https://packages.jorisjonkers.dev/cargo/"\n'
+          printf '# END packages-proxy\n'
+        } > "$config.tmp"
+        mv "$config.tmp" "$config"
+        chmod 600 "$config"
+
+        {
+          printf 'CARGO_REGISTRIES_JORISJONKERS_PACKAGES_TOKEN=Bearer %s\n' "$PACKAGES_PROXY_TOKEN"
+        } >> "$GITHUB_ENV"

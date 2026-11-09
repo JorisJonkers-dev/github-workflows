@@ -27,9 +27,17 @@ on:
         required: false
         type: string
         default: ''
+      require-package-proxy:
+        description: When true, a missing PACKAGES_PROXY_TOKEN fails the job. Empty or false only warns.
+        required: false
+        type: boolean
+        default: false
     secrets:
       packages-token:
         description: Token passed as docker build secret github_token.
+        required: false
+      PACKAGES_PROXY_TOKEN:
+        description: Packages proxy API token. When set, Go, Python and npm dependencies resolve through the packages proxy.
         required: false
 
 permissions:
@@ -64,13 +72,55 @@ jobs:
 
           printf 'tag=%s:ci-%s\n' "$image_ref" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
+      - name: Write packages proxy netrc
+        id: proxy
+        shell: bash
+        env:
+          PACKAGES_PROXY_TOKEN: ${{ secrets.PACKAGES_PROXY_TOKEN }}
+          REQUIRE_PACKAGE_PROXY: ${{ inputs.require-package-proxy }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$PACKAGES_PROXY_TOKEN" ]; then
+            if [ "$REQUIRE_PACKAGE_PROXY" = true ]; then
+              echo "::error::PACKAGES_PROXY_TOKEN is not set and require-package-proxy is true. Pass the PACKAGES_PROXY_TOKEN secret: secrets: inherit, or the one-line form in README.md."
+              exit 1
+            fi
+            echo "::warning::PACKAGES_PROXY_TOKEN is not set; packages install without the proxy. Pass the secret, or set require-package-proxy to true to fail instead."
+            exit 0
+          fi
+
+          printf '::add-mask::%s\n' "$PACKAGES_PROXY_TOKEN"
+          umask 077
+          netrc="$RUNNER_TEMP/packages-netrc"
+          {
+            printf 'machine packages.jorisjonkers.dev\n'
+            printf 'login packages\n'
+            printf 'password %s\n' "$PACKAGES_PROXY_TOKEN"
+          } > "$netrc"
+          npmrc="$RUNNER_TEMP/packages-npmrc"
+          {
+            printf 'registry=https://packages.jorisjonkers.dev/npm/\n'
+            printf '//packages.jorisjonkers.dev/npm/:_authToken=%s\n' "$PACKAGES_PROXY_TOKEN"
+            printf '@jorisjonkers-dev:registry=https://npm.pkg.github.com\n'
+          } > "$npmrc"
+          {
+            printf 'netrc=%s\n' "$netrc"
+            printf 'npmrc=%s\n' "$npmrc"
+            printf 'enabled=true\n'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build image
         uses: docker/build-push-action@v7
         with:
           context: ${{ inputs.context }}
           file: ${{ inputs.dockerfile }}
           target: ${{ inputs.target }}
-          build-args: ${{ inputs.build-args }}
+          build-args: |
+            ${{ inputs.build-args }}
+            ${{ steps.proxy.outputs.enabled == 'true' && 'GOPROXY=https://packages.jorisjonkers.dev/go' || '' }}
+            ${{ steps.proxy.outputs.enabled == 'true' && 'PIP_INDEX_URL=https://packages.jorisjonkers.dev/pypi/simple/' || '' }}
+            ${{ steps.proxy.outputs.enabled == 'true' && 'UV_DEFAULT_INDEX=https://packages.jorisjonkers.dev/pypi/simple/' || '' }}
           push: false
           tags: ${{ steps.image.outputs.tag }}
           cache-from: type=gha,scope=${{ inputs.image-name }}
@@ -79,3 +129,5 @@ jobs:
           secrets: |
             github_token=${{ secrets.packages-token || github.token }}
             github_actor=${{ github.actor }}
+            ${{ steps.proxy.outputs.enabled == 'true' && format('id=packages-netrc,src={0}', steps.proxy.outputs.netrc) || '' }}
+            ${{ steps.proxy.outputs.enabled == 'true' && format('id=packages-npmrc,src={0}', steps.proxy.outputs.npmrc) || '' }}

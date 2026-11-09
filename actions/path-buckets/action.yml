@@ -30,6 +30,15 @@ inputs:
     required: false
     default: HEAD
 
+  packages-proxy-token:
+    description: Packages proxy API token. When set, PyYAML installs through the packages proxy.
+    required: false
+    default: ''
+  require-package-proxy:
+    description: When true, a missing packages-proxy-token fails the job. Empty or false only warns.
+    required: false
+    default: 'false'
+
 outputs:
   run:
     description: Every bucket and group as one JSON object of bools.
@@ -38,14 +47,58 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Check packages proxy token
+      shell: bash
+      env:
+        PACKAGES_PROXY_TOKEN: ${{ inputs.packages-proxy-token }}
+        REQUIRE_PACKAGE_PROXY: ${{ inputs.require-package-proxy }}
+        EVENT_NAME: ${{ github.event_name }}
+        HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        BASE_REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+
+        if [ -n "$PACKAGES_PROXY_TOKEN" ]; then
+          exit 0
+        fi
+        if [ "$EVENT_NAME" = pull_request ] && [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+          echo "::warning::PACKAGES_PROXY_TOKEN is not available to pull requests from forks; packages install without the proxy."
+          exit 0
+        fi
+        if [ "$REQUIRE_PACKAGE_PROXY" = true ]; then
+          echo "::error::PACKAGES_PROXY_TOKEN is not set and require-package-proxy is true. Pass the PACKAGES_PROXY_TOKEN secret: secrets: inherit, or the one-line form in README.md."
+          exit 1
+        fi
+        echo "::warning::PACKAGES_PROXY_TOKEN is not set; packages install without the proxy. Pass the secret, or set require-package-proxy to true to fail instead."
+
     - name: Install PyYAML
       shell: bash
+      env:
+        PACKAGES_PROXY_TOKEN: ${{ inputs.packages-proxy-token }}
       run: |
         set -euo pipefail
         python3 -m venv "$RUNNER_TEMP/path-buckets-venv"
         python="$RUNNER_TEMP/path-buckets-venv/bin/python"
-        "$python" -m pip install --disable-pip-version-check "pip==26.2.2"
-        "$python" -m pip install --uploaded-prior-to P7D --quiet PyYAML==6.0.2
+        index_args=()
+        if [ -n "$PACKAGES_PROXY_TOKEN" ]; then
+          printf '::add-mask::%s\n' "$PACKAGES_PROXY_TOKEN"
+          # pip reads ~/.netrc for the proxy credential; the token is never in the index URL.
+          umask 077
+          netrc="$HOME/.netrc"
+          {
+            if [ -f "$netrc" ]; then
+              awk 'BEGIN { keep = 1 } $1 == "machine" { keep = $2 != "packages.jorisjonkers.dev" } $1 == "default" { keep = 1 } keep { print }' "$netrc"
+            fi
+            printf 'machine packages.jorisjonkers.dev\n'
+            printf 'login packages\n'
+            printf 'password %s\n' "$PACKAGES_PROXY_TOKEN"
+          } > "$netrc.tmp"
+          mv "$netrc.tmp" "$netrc"
+          chmod 600 "$netrc"
+          index_args=(--index-url https://packages.jorisjonkers.dev/pypi/simple/)
+        fi
+        "$python" -m pip install --disable-pip-version-check "${index_args[@]}" "pip==26.2.2"
+        "$python" -m pip install --uploaded-prior-to P7D "${index_args[@]}" --quiet PyYAML==6.0.2
 
     # The self-test runs before every decision, so the rules a run applies are
     # the rules the fixtures prove.

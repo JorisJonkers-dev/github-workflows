@@ -18,6 +18,11 @@ name: 'Repository Hygiene Guard'
         'required': false
         'type': 'string'
         'default': ''
+      'package-proxy-guard':
+        'description': 'report (default) prints package proxy findings and passes; enforce fails the job.'
+        'required': false
+        'type': 'string'
+        'default': 'report'
       'deny-globs':
         'description': 'Newline-separated denied path globs.'
         'required': false
@@ -38,6 +43,10 @@ name: 'Repository Hygiene Guard'
           .agents/skills/speckit*/**
           templates/**/.specify/**
           templates/**/.claude/commands/speckit*.md
+    'secrets':
+      'PACKAGES_PROXY_TOKEN':
+        'description': 'Packages proxy API token. Only fetches PyYAML for the package proxy guard; the guard never fails without it.'
+        'required': false
 
 'permissions':
   'contents': 'read'
@@ -103,3 +112,80 @@ name: 'Repository Hygiene Guard'
               print('Move planning material to issues/PRs or durable docs, or apply the override label for an approved exception.')
               sys.exit(1)
           PY
+
+      - 'name': 'Check out github-workflows for the package proxy guard'
+        'uses': 'actions/checkout@v7'
+        'with':
+          'repository': 'JorisJonkers-dev/github-workflows'
+          'ref': 'v0.43.0' # x-release-please-version
+          'path': '.github-workflows'
+          'persist-credentials': false
+
+      # A caller on @main between a merge and the next release has a github-workflows checkout
+      # without the guard script; skip the guard with a notice rather than fail the caller.
+      - 'name': 'Locate the package proxy guard'
+        'id': 'guard-script'
+        'run': |
+          set -euo pipefail
+
+          if [ -f .github-workflows/scripts/package_proxy_guard.py ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::.github-workflows has no package_proxy_guard.py at its pinned release; the package proxy guard is skipped."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - 'name': 'Install PyYAML for the package proxy guard'
+        'if': "${{ steps.guard-script.outputs.present == 'true' }}"
+        'env':
+          'PACKAGES_PROXY_TOKEN': '${{ secrets.PACKAGES_PROXY_TOKEN }}'
+        'run': |
+          set -euo pipefail
+
+          python3 -m venv "$RUNNER_TEMP/package-proxy-guard"
+          python="$RUNNER_TEMP/package-proxy-guard/bin/python"
+          index_args=()
+          if [ -n "$PACKAGES_PROXY_TOKEN" ]; then
+            printf '::add-mask::%s\n' "$PACKAGES_PROXY_TOKEN"
+            # pip reads ~/.netrc for the proxy credential; the token is never in the index URL.
+            umask 077
+            netrc="$HOME/.netrc"
+            {
+              if [ -f "$netrc" ]; then
+                awk 'BEGIN { keep = 1 } $1 == "machine" { keep = $2 != "packages.jorisjonkers.dev" } $1 == "default" { keep = 1 } keep { print }' "$netrc"
+              fi
+              printf 'machine packages.jorisjonkers.dev\n'
+              printf 'login packages\n'
+              printf 'password %s\n' "$PACKAGES_PROXY_TOKEN"
+            } > "$netrc.tmp"
+            mv "$netrc.tmp" "$netrc"
+            chmod 600 "$netrc"
+            index_args=(--index-url https://packages.jorisjonkers.dev/pypi/simple/)
+          else
+            echo "::notice::PACKAGES_PROXY_TOKEN is not set; PyYAML for the guard installs from PyPI."
+          fi
+          "$python" -m pip install --disable-pip-version-check "pip==26.2.2"
+          "$python" -m pip install --uploaded-prior-to P7D "${index_args[@]}" --quiet PyYAML==6.0.2
+
+      - 'name': 'Check package proxy use'
+        'if': "${{ steps.guard-script.outputs.present == 'true' }}"
+        'env':
+          'PACKAGE_PROXY_GUARD': '${{ inputs.package-proxy-guard }}'
+        'run': |
+          set -euo pipefail
+
+          args=()
+          case "$PACKAGE_PROXY_GUARD" in
+            report)
+              args+=(--report-only)
+              ;;
+            enforce)
+              ;;
+            *)
+              echo "::error::package-proxy-guard must be report or enforce"
+              exit 1
+              ;;
+          esac
+
+          "$RUNNER_TEMP/package-proxy-guard/bin/python" .github-workflows/scripts/package_proxy_guard.py \
+            --root . --allowlist .github/package-proxy-allow.txt "${args[@]}"

@@ -21,10 +21,10 @@ actions:
 
 3. No token in build args. No `build-args:` value in any workflow or
    action may name PACKAGES_PROXY_TOKEN, pass the token itself
-   (`secrets.packages-proxy-token` interpolated as a value), or carry any
+   (`secrets.PACKAGES_PROXY_TOKEN` interpolated as a value), or carry any
    `${{ secrets.* }}` reference at all: values in build args are baked
    into image layers. The only allowed mention is the emptiness check
-   `secrets.packages-proxy-token != ''` that gates the conditional proxy
+   `secrets.PACKAGES_PROXY_TOKEN != ''` that gates the conditional proxy
    values.
 
 4. No token in proxy URLs. The setup-package-proxy and setup-java-gradle
@@ -33,7 +33,11 @@ actions:
 """
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -54,7 +58,6 @@ PINNED_PIP_UPGRADE_RE = re.compile(
 TOKEN_REF_RE = re.compile(
     r"\$\{?PACKAGES_PROXY_TOKEN"
     r"|secrets\.PACKAGES_PROXY_TOKEN"
-    r"|secrets\.packages-proxy-token"
     r"|inputs\.packages-proxy-token"
 )
 
@@ -66,7 +69,7 @@ REDIRECT_GROUP_CLOSE_RE = re.compile(r"^\}\s*(>>?)\s*\S")
 
 # The only allowed mention of the token source in a build-args value:
 # checking that the token is set, never passing it.
-BUILD_ARG_TOKEN_CHECK_RE = re.compile(r"secrets\.packages-proxy-token\s*!=")
+BUILD_ARG_TOKEN_CHECK_RE = re.compile(r"secrets\.PACKAGES_PROXY_TOKEN\s*!=")
 
 
 def pip_install_offenses(text: str) -> list[str]:
@@ -157,11 +160,9 @@ def collect_build_arg_values(node: object) -> list[str]:
 
 def build_arg_offense(value: str) -> str | None:
     """Why a build-args value breaks the token rule, or None if clean."""
-    if "PACKAGES_PROXY_TOKEN" in value:
-        return "names the token variable"
     remainder = BUILD_ARG_TOKEN_CHECK_RE.sub("", value)
-    if "packages-proxy-token" in remainder:
-        return "passes the token itself, not only the emptiness check"
+    if "PACKAGES_PROXY_TOKEN" in remainder:
+        return "names the token, not only the emptiness check"
     if "secrets." in remainder:
         return "interpolates a secrets.* reference"
     return None
@@ -229,3 +230,132 @@ class PackageProxyTokenNotInProxyUrls(unittest.TestCase):
                 if PROXY_URL_RE.search(raw) and "PACKAGES_PROXY_TOKEN" in raw:
                     failures.append(f"{rel}: line {lineno}: {raw.strip()}")
         self.assertEqual([], failures)
+
+
+@unittest.skipUnless(shutil.which("bash"), "the netrc step is a bash script")
+class PackageProxyNetrcRewrite(unittest.TestCase):
+    """The netrc step rewrites ~/.netrc. Entries it does not own must survive, including a default entry."""
+
+    def _run_step(self, existing: str) -> str:
+        action = yaml.safe_load((ROOT / "actions" / "setup-package-proxy" / "action.yml").read_text(encoding="utf-8"))
+        step = next(s for s in action["runs"]["steps"] if s.get("name") == "Write packages proxy netrc")
+        with tempfile.TemporaryDirectory() as home:
+            netrc = Path(home) / ".netrc"
+            netrc.write_text(existing, encoding="utf-8")
+            env = {
+                "HOME": home,
+                "PATH": os.environ.get("PATH", ""),
+                "RUNNER_TEMP": home,
+                "PACKAGES_PROXY_TOKEN": "TESTKEY-123",
+            }
+            subprocess.run(
+                # umask 022 is a runner's usual default: the file must still end up private.
+                ["bash", "-c", "set -euo pipefail\numask 022\n" + step["run"]],
+                env=env,
+                check=True,
+                capture_output=True,
+            )
+            self.mode = netrc.stat().st_mode & 0o777
+            return netrc.read_text(encoding="utf-8")
+
+    def test_the_rewritten_netrc_is_readable_only_by_its_owner(self) -> None:
+        self._run_step("machine other.example.com\nlogin me\npassword pw\n")
+        self.assertEqual(0o600, self.mode)
+
+    def test_leading_default_entry_survives(self) -> None:
+        text = self._run_step(
+            "default login anon password none\n"
+            "machine other.example.com\nlogin me\npassword pw\n"
+            "machine packages.jorisjonkers.dev\nlogin packages\npassword OLD\n"
+        )
+        self.assertIn("default login anon password none", text)
+        self.assertIn("machine other.example.com", text)
+        self.assertNotIn("OLD", text)
+        self.assertEqual(1, text.count("machine packages.jorisjonkers.dev"))
+
+    def test_trailing_default_entry_after_the_proxy_entry_survives(self) -> None:
+        text = self._run_step(
+            "machine packages.jorisjonkers.dev\nlogin packages\npassword OLD\n"
+            "default login anon password none\n"
+        )
+        self.assertIn("default login anon password none", text)
+        self.assertNotIn("OLD", text)
+
+
+@unittest.skipUnless(shutil.which("bash"), "the npm step is a bash script")
+class PackageProxyNpmConfigLocation(unittest.TestCase):
+    """The npm block goes to NPM_CONFIG_USERCONFIG outside the workspace, and to $HOME/.npmrc otherwise."""
+
+    ACTIONS = ("setup-package-proxy", "setup-node")
+
+    def _run(self, action_name: str, *, userconfig: str | None) -> tuple[str, str, str, str]:
+        action = yaml.safe_load((ROOT / "actions" / action_name / "action.yml").read_text(encoding="utf-8"))
+        step = next(s for s in action["runs"]["steps"] if s.get("name") == "Configure packages proxy for npm")
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            workspace = Path(tmp) / "ws"
+            home.mkdir()
+            workspace.mkdir()
+            github_env = Path(tmp) / "github_env"
+            github_env.write_text("", encoding="utf-8")
+            env = {
+                "HOME": str(home),
+                "PATH": os.environ.get("PATH", ""),
+                "RUNNER_TEMP": tmp,
+                "GITHUB_WORKSPACE": str(workspace),
+                "GITHUB_ENV": str(github_env),
+                "PACKAGES_PROXY_TOKEN": "TESTKEY-123",
+            }
+            if userconfig is not None:
+                env["NPM_CONFIG_USERCONFIG"] = userconfig.replace("WS", str(workspace)).replace("TMP", tmp)
+                Path(env["NPM_CONFIG_USERCONFIG"]).parent.mkdir(parents=True, exist_ok=True)
+            result = subprocess.run(
+                ["bash", "-c", "set -euo pipefail\numask 022\n" + step["run"]],
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            written = [f for f in (home / ".npmrc", Path(env.get("NPM_CONFIG_USERCONFIG", home / ".npmrc"))) if f.exists()]
+            self.modes = {f.stat().st_mode & 0o777 for f in written}
+            home_npmrc = (home / ".npmrc").read_text(encoding="utf-8") if (home / ".npmrc").exists() else ""
+            target = env.get("NPM_CONFIG_USERCONFIG")
+            target_text = Path(target).read_text(encoding="utf-8") if target and Path(target).exists() else ""
+            return home_npmrc, target_text, github_env.read_text(encoding="utf-8"), result.stdout + result.stderr
+
+    def test_the_npm_config_holding_the_key_is_readable_only_by_its_owner(self) -> None:
+        for name in self.ACTIONS:
+            for userconfig in (None, "TMP/runner/.npmrc"):
+                with self.subTest(action=name, userconfig=userconfig):
+                    self._run(name, userconfig=userconfig)
+                    self.assertEqual({0o600}, self.modes)
+
+    def test_unset_writes_home_npmrc(self) -> None:
+        for name in self.ACTIONS:
+            with self.subTest(action=name):
+                home_npmrc, _, github_env, _ = self._run(name, userconfig=None)
+                self.assertIn("# BEGIN packages-proxy", home_npmrc)
+                self.assertIn("//packages.jorisjonkers.dev/npm/:_authToken=TESTKEY-123", home_npmrc)
+                self.assertNotIn("NPM_CONFIG_USERCONFIG", github_env)
+
+    def test_outside_the_workspace_writes_that_file(self) -> None:
+        # A sibling whose name starts with the workspace path is still outside it.
+        for name in self.ACTIONS:
+            with self.subTest(action=name):
+                home_npmrc, target_text, github_env, _ = self._run(name, userconfig="TMP/runner/.npmrc")
+                self.assertIn("# BEGIN packages-proxy", target_text)
+                self.assertNotIn("# BEGIN packages-proxy", home_npmrc)
+                self.assertNotIn("NPM_CONFIG_USERCONFIG", github_env)
+                sibling_home, sibling_target, _, _ = self._run(name, userconfig="WS-extra/.npmrc")
+                self.assertIn("# BEGIN packages-proxy", sibling_target)
+                self.assertNotIn("# BEGIN packages-proxy", sibling_home)
+
+    def test_inside_the_workspace_writes_home_and_exports_it(self) -> None:
+        for name in self.ACTIONS:
+            with self.subTest(action=name):
+                home_npmrc, target_text, github_env, output = self._run(name, userconfig="WS/.npmrc")
+                self.assertIn("# BEGIN packages-proxy", home_npmrc)
+                self.assertEqual("", target_text)
+                self.assertIn("NPM_CONFIG_USERCONFIG=", github_env)
+                self.assertIn("::warning::NPM_CONFIG_USERCONFIG points inside the workspace", output)
+

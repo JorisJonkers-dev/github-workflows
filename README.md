@@ -61,6 +61,73 @@ jobs:
       packages-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
+## Packages Proxy Token
+
+Every reusable workflow that installs packages takes the proxy token as the
+`PACKAGES_PROXY_TOKEN` secret. A caller adds exactly one of these lines to the
+job that calls the workflow, under `uses:`:
+
+```yaml
+secrets: inherit
+```
+
+or
+
+```yaml
+secrets: { PACKAGES_PROXY_TOKEN: ${{ secrets.PACKAGES_PROXY_TOKEN }} }
+```
+
+Without the secret the job logs a warning and installs packages directly. A
+caller that also sets `require-package-proxy: true` makes an empty token fail
+the job instead. A pull request from a fork never receives secrets, so it only
+warns. Composite actions take the same token as `packages-proxy-token`.
+
+`container-publish.yml` renamed its secret in this release from
+`packages-proxy-token` (v0.44.0 callers) to `PACKAGES_PROXY_TOKEN`. The old name
+still works as a deprecated alias: a caller that passes only `packages-proxy-token`
+keeps working, and the new name takes precedence when both are passed.
+
+## Package Proxy Guard
+
+`repository-hygiene-guard.yml` runs `scripts/package_proxy_guard.py` over the
+caller's checkout. It reports six rules:
+
+- `uncovered-install`: an installer (npm, pnpm or yarn install or ci, pip
+  install, uv sync or pip, cargo build, fetch or install, go mod download, tidy,
+  build, test or install, gradle, `./gradlew`, mvn or `./mvnw`) that runs in a
+  job before any step sets up the proxy. A covering step is
+  `setup-package-proxy`, `setup-java-gradle` or `setup-node` given its token, or
+  a run step that writes the proxy netrc or sets the proxy index variables. Only
+  step order counts; the guard does not evaluate `if:` conditions, so a covering
+  step that is conditionally skipped still counts.
+- `reusable-without-token`: a job that calls a reusable workflow must pass the
+  proxy token. It passes only when it calls a `JorisJonkers-dev/github-workflows`
+  workflow with `secrets: inherit` or `PACKAGES_PROXY_TOKEN`. A shared workflow
+  called with only `packages-token` is reported, as is any other reusable call.
+- `dockerfile-netrc`: a `RUN` that installs go, pip or uv packages without the
+  `--mount=type=secret,id=packages-netrc` mount, or npm, pnpm or yarn packages
+  without the `--mount=type=secret,id=packages-npmrc` mount. It also reports a
+  `RUN` whose stage does not declare the build arg its index needs (`GOPROXY`,
+  `PIP_INDEX_URL`, `UV_DEFAULT_INDEX`). A `FROM` starts a new stage, so an `ARG`
+  does not carry across stages. Cargo and Gradle or Maven `RUN`s need no mount.
+- `npmrc-registry`: a committed `.npmrc` whose `registry=` is not
+  `https://packages.jorisjonkers.dev/npm/`.
+- `gradle-repository`: a Gradle build file that names a third-party Maven
+  repository URL. `mavenCentral()`, `gradlePluginPortal()` and `google()` are
+  allowed.
+- `allowlist`: an entry in the allowlist has no reason.
+
+Out of scope: OS packages (`apt`, `apk`). Installers are matched by text on
+`run:` lines, so an installer inside a script file is not seen.
+
+The input `package-proxy-guard` selects the mode. `report` (the default) prints
+the findings and passes. `enforce` fails the job. A repository migrates in
+report mode first, then opts in to `enforce`. If the pinned release of this
+repository has no guard script yet, the guard step is skipped with a notice.
+
+Exceptions go in `.github/package-proxy-allow.txt`, one per line: a path glob,
+then a reason. An entry without a reason is itself a finding.
+
 ## Zero-Warning Gates
 
 `node-ci.yml` always runs ESLint through the selected package manager with

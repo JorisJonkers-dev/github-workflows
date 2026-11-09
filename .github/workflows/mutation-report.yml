@@ -26,6 +26,14 @@ on:
         description: gremlins release to install.
         type: string
         default: v0.6.0
+      require-package-proxy:
+        description: When true, a missing PACKAGES_PROXY_TOKEN fails the job. Empty or false only warns.
+        type: boolean
+        default: false
+    secrets:
+      PACKAGES_PROXY_TOKEN:
+        description: Packages proxy API token. When set, Go and npm resolve packages through the proxy.
+        required: false
 
 permissions:
   contents: read
@@ -55,6 +63,12 @@ jobs:
       - uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
         with:
           cache_save: false
+      - uses: ./.github-workflows/actions/setup-package-proxy
+        with:
+          token: ${{ secrets.PACKAGES_PROXY_TOKEN }}
+          require-package-proxy: ${{ inputs.require-package-proxy }}
+          python: 'false'
+          cargo: 'false'
 
       - name: Mutate the changed Go
         id: go
