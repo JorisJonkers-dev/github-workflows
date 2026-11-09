@@ -249,12 +249,18 @@ class PackageProxyNetrcRewrite(unittest.TestCase):
                 "PACKAGES_PROXY_TOKEN": "TESTKEY-123",
             }
             subprocess.run(
-                ["bash", "-c", "set -euo pipefail\n" + step["run"]],
+                # umask 022 is a runner's usual default: the file must still end up private.
+                ["bash", "-c", "set -euo pipefail\numask 022\n" + step["run"]],
                 env=env,
                 check=True,
                 capture_output=True,
             )
+            self.mode = netrc.stat().st_mode & 0o777
             return netrc.read_text(encoding="utf-8")
+
+    def test_the_rewritten_netrc_is_readable_only_by_its_owner(self) -> None:
+        self._run_step("machine other.example.com\nlogin me\npassword pw\n")
+        self.assertEqual(0o600, self.mode)
 
     def test_leading_default_entry_survives(self) -> None:
         text = self._run_step(
@@ -304,16 +310,25 @@ class PackageProxyNpmConfigLocation(unittest.TestCase):
                 env["NPM_CONFIG_USERCONFIG"] = userconfig.replace("WS", str(workspace)).replace("TMP", tmp)
                 Path(env["NPM_CONFIG_USERCONFIG"]).parent.mkdir(parents=True, exist_ok=True)
             result = subprocess.run(
-                ["bash", "-c", "set -euo pipefail\n" + step["run"]],
+                ["bash", "-c", "set -euo pipefail\numask 022\n" + step["run"]],
                 env=env,
                 check=True,
                 capture_output=True,
                 text=True,
             )
+            written = [f for f in (home / ".npmrc", Path(env.get("NPM_CONFIG_USERCONFIG", home / ".npmrc"))) if f.exists()]
+            self.modes = {f.stat().st_mode & 0o777 for f in written}
             home_npmrc = (home / ".npmrc").read_text(encoding="utf-8") if (home / ".npmrc").exists() else ""
             target = env.get("NPM_CONFIG_USERCONFIG")
             target_text = Path(target).read_text(encoding="utf-8") if target and Path(target).exists() else ""
             return home_npmrc, target_text, github_env.read_text(encoding="utf-8"), result.stdout + result.stderr
+
+    def test_the_npm_config_holding_the_key_is_readable_only_by_its_owner(self) -> None:
+        for name in self.ACTIONS:
+            for userconfig in (None, "TMP/runner/.npmrc"):
+                with self.subTest(action=name, userconfig=userconfig):
+                    self._run(name, userconfig=userconfig)
+                    self.assertEqual({0o600}, self.modes)
 
     def test_unset_writes_home_npmrc(self) -> None:
         for name in self.ACTIONS:
