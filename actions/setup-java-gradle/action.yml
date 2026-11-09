@@ -70,14 +70,22 @@ runs:
         // Route dependency resolution through the packages proxy. First-party
         // GitHub Packages repositories stay direct; everything else is moved
         // behind the proxy.
+        fun ArtifactRepository.isAllowed(): Boolean = when (this) {
+            is MavenArtifactRepository -> {
+                val host = runCatching { url.host }.getOrNull()
+                host == "maven.pkg.github.com" || host == "packages.jorisjonkers.dev"
+            }
+            is FlatDirectoryArtifactRepository, is IvyArtifactRepository -> true
+            else -> false
+        }
+
+        // `all` also runs for every repository added later, so a repository a
+        // build script declares after this point is removed as it is added
+        // (Gradle's own "enterprise repository" init-script pattern).
         fun RepositoryHandler.usePackagesProxy() {
-            toList().filter { repository ->
-                if (repository is MavenArtifactRepository) {
-                    runCatching { repository.url?.host }.getOrNull() != "maven.pkg.github.com"
-                } else {
-                    repository !is FlatDirectoryArtifactRepository && repository !is IvyArtifactRepository
-                }
-            }.forEach { remove(it) }
+            all {
+                if (!isAllowed()) remove(this)
+            }
 
             maven {
                 name = "packagesProxy"
@@ -117,7 +125,11 @@ runs:
             dependencyResolutionManagement.repositories.usePackagesProxy()
         }
 
+        // Before the project's own build script runs, so its `repositories {}`
+        // and `buildscript { repositories {} }` blocks add to handlers that
+        // already drop third-party repositories.
         beforeProject {
+            buildscript.repositories.usePackagesProxy()
             repositories.usePackagesProxy()
         }
         KTS
