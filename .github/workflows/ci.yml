@@ -50,7 +50,8 @@ jobs:
       - name: Install YAML parser
         run: |
           python3 -m venv .venv-yaml
-          .venv-yaml/bin/python -m pip install PyYAML==6.0.2
+          .venv-yaml/bin/python -m pip install --disable-pip-version-check "pip==26.2.2"
+          .venv-yaml/bin/python -m pip install --uploaded-prior-to P7D PyYAML==6.0.2
 
       - name: Validate YAML files
         run: |
@@ -93,7 +94,8 @@ jobs:
       - name: Install coverage
         run: |
           python3 -m venv .venv-tests
-          .venv-tests/bin/python -m pip install coverage==7.10.7 PyYAML==6.0.2
+          .venv-tests/bin/python -m pip install --disable-pip-version-check "pip==26.2.2"
+          .venv-tests/bin/python -m pip install --uploaded-prior-to P7D coverage==7.10.7 PyYAML==6.0.2
 
       - name: Run migration guard tests with coverage
         run: |

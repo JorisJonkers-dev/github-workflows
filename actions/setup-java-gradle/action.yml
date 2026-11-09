@@ -26,6 +26,10 @@ inputs:
     description: GitHub Packages token exposed to Gradle as GITHUB_TOKEN.
     required: false
     default: ''
+  packages-proxy-token:
+    description: Packages proxy API token. When set, Gradle resolves dependencies through the packages proxy instead of direct upstream repositories.
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -45,6 +49,90 @@ runs:
           printf 'GITHUB_ACTOR=%s\n' "$actor"
           printf 'GITHUB_TOKEN=%s\n' "$GITHUB_PACKAGES_TOKEN"
         } >> "$GITHUB_ENV"
+
+    - name: Configure packages proxy for Gradle
+      if: ${{ inputs.packages-proxy-token != '' }}
+      shell: bash
+      env:
+        PACKAGES_PROXY_TOKEN: ${{ inputs.packages-proxy-token }}
+      run: |
+        set -euo pipefail
+
+        # Mask before anything else; the token is then written to the
+        # environment for Gradle to read in later steps.
+        printf '::add-mask::%s\n' "$PACKAGES_PROXY_TOKEN"
+
+        printf 'PACKAGES_PROXY_TOKEN=%s\n' "$PACKAGES_PROXY_TOKEN" >> "$GITHUB_ENV"
+
+        init_dir="$HOME/.gradle/init.d"
+        mkdir -p "$init_dir"
+        cat > "$init_dir/packages-proxy.init.gradle.kts" <<'KTS'
+        // Route dependency resolution through the packages proxy. First-party
+        // GitHub Packages repositories stay direct; everything else is moved
+        // behind the proxy.
+        fun ArtifactRepository.isAllowed(): Boolean = when (this) {
+            is MavenArtifactRepository -> {
+                val host = runCatching { url.host }.getOrNull()
+                host == "maven.pkg.github.com" || host == "packages.jorisjonkers.dev"
+            }
+            is FlatDirectoryArtifactRepository, is IvyArtifactRepository -> true
+            else -> false
+        }
+
+        // `all` also runs for every repository added later, so a repository a
+        // build script declares after this point is removed as it is added
+        // (Gradle's own "enterprise repository" init-script pattern).
+        fun RepositoryHandler.usePackagesProxy() {
+            all {
+                if (!isAllowed()) remove(this)
+            }
+
+            maven {
+                name = "packagesProxy"
+                setUrl("https://packages.jorisjonkers.dev/maven/")
+                packagesProxyAuthentication()
+            }
+            maven {
+                name = "packagesProxySpringMilestone"
+                setUrl("https://packages.jorisjonkers.dev/maven/spring-milestone/")
+                packagesProxyAuthentication()
+            }
+            maven {
+                name = "packagesProxySonatypeSnapshots"
+                setUrl("https://packages.jorisjonkers.dev/maven/sonatype-snapshots/")
+                content { mavenContent { snapshotsOnly() } }
+                packagesProxyAuthentication()
+            }
+            maven {
+                name = "packagesProxyGoogleMaven"
+                setUrl("https://packages.jorisjonkers.dev/maven/google-maven/")
+                packagesProxyAuthentication()
+            }
+        }
+
+        fun MavenArtifactRepository.packagesProxyAuthentication() {
+            credentials(HttpHeaderCredentials::class) {
+                name = "Authorization"
+                value = "Bearer " + System.getenv("PACKAGES_PROXY_TOKEN")
+            }
+            authentication {
+                create<HttpHeaderAuthentication>("header")
+            }
+        }
+
+        settingsEvaluated {
+            pluginManagement.repositories.usePackagesProxy()
+            dependencyResolutionManagement.repositories.usePackagesProxy()
+        }
+
+        // Before the project's own build script runs, so its `repositories {}`
+        // and `buildscript { repositories {} }` blocks add to handlers that
+        // already drop third-party repositories.
+        beforeProject {
+            buildscript.repositories.usePackagesProxy()
+            repositories.usePackagesProxy()
+        }
+        KTS
 
     - uses: actions/setup-java@v5
       with:

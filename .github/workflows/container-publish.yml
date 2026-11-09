@@ -39,6 +39,9 @@ on:
       packages-token:
         description: Token passed as docker build secret github_token.
         required: false
+      packages-proxy-token:
+        description: Packages proxy API token. When set, Go and Python dependencies resolve through the packages proxy.
+        required: false
 
 permissions:
   contents: read
@@ -79,6 +82,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
+      - name: Write packages proxy netrc
+        id: proxy
+        shell: bash
+        # secrets is not usable in a step if:, so opt-in is checked in bash.
+        env:
+          PACKAGES_PROXY_TOKEN: ${{ secrets.packages-proxy-token }}
+        run: |
+          set -euo pipefail
+
+          [ -n "$PACKAGES_PROXY_TOKEN" ] || exit 0
+
+          printf '::add-mask::%s\n' "$PACKAGES_PROXY_TOKEN"
+          umask 077
+          netrc="$RUNNER_TEMP/packages-netrc"
+          {
+            printf 'machine packages.jorisjonkers.dev\n'
+            printf 'login packages\n'
+            printf 'password %s\n' "$PACKAGES_PROXY_TOKEN"
+          } > "$netrc"
+          printf 'netrc=%s\n' "$netrc" >> "$GITHUB_OUTPUT"
+
       - name: Resolve image tags
         id: image
         shell: bash
@@ -117,6 +141,15 @@ jobs:
           # Only a default-branch push writes the cache: a tag's or pull request's cache can be
           # restored by no later run, so it would only fill the repository's 10 GB.
           cache-to: ${{ (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) && format('type=gha,mode=max,scope={0}', inputs.image-name) || '' }}
+          # Proxy build args and secret only apply with a token; the
+          # conditional yields '' so an unset token changes nothing. The token
+          # itself only travels as the BuildKit secret file, never as a build
+          # arg or in a URL.
+          build-args: |
+            ${{ secrets.packages-proxy-token != '' && 'GOPROXY=https://packages.jorisjonkers.dev/go' || '' }}
+            ${{ secrets.packages-proxy-token != '' && 'PIP_INDEX_URL=https://packages.jorisjonkers.dev/pypi/simple/' || '' }}
+            ${{ secrets.packages-proxy-token != '' && 'UV_DEFAULT_INDEX=https://packages.jorisjonkers.dev/pypi/simple/' || '' }}
           secrets: |
             github_token=${{ secrets.packages-token || github.token }}
             github_actor=${{ github.actor }}
+            ${{ secrets.packages-proxy-token != '' && format('id=packages-netrc,src={0}', steps.proxy.outputs.netrc) || '' }}

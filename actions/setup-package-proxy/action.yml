@@ -1,0 +1,75 @@
+name: Setup Packages Proxy
+description: >-
+  Credentials and environment for the packages proxy. Writes a netrc file and
+  exports Go and Python package manager variables so downloads go through the
+  proxy. A no-op without a token.
+
+inputs:
+  token:
+    description: >-
+      Packages proxy API token, typically secrets.PACKAGES_PROXY_TOKEN. Empty
+      leaves everything at today's direct-upstream behaviour.
+    required: false
+    default: ''
+  go:
+    description: Export GOPROXY and GOPRIVATE so Go module downloads use the proxy.
+    required: false
+    default: 'true'
+  python:
+    description: Export PIP_INDEX_URL and UV_DEFAULT_INDEX so Python packages use the proxy.
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Write packages proxy netrc
+      if: ${{ inputs.token != '' }}
+      shell: bash
+      env:
+        PACKAGES_PROXY_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+
+        printf '::add-mask::%s\n' "$PACKAGES_PROXY_TOKEN"
+
+        # Go, pip and uv all read ~/.netrc, so the token never has to sit in
+        # an environment variable or URL of its own.
+        umask 077
+        netrc="$HOME/.netrc"
+        {
+          # Rebuild from the old file minus our entry, so re-runs and token
+          # rotations do not stack stale proxy credentials.
+          if [ -f "$netrc" ]; then
+            awk '$1 == "machine" { keep = $2 != "packages.jorisjonkers.dev" } keep { print }' "$netrc"
+          fi
+          printf 'machine packages.jorisjonkers.dev\n'
+          printf 'login packages\n'
+          printf 'password %s\n' "$PACKAGES_PROXY_TOKEN"
+        } > "$netrc"
+        chmod 600 "$netrc"
+
+    - name: Export package proxy environment
+      if: ${{ inputs.token != '' }}
+      shell: bash
+      env:
+        EXPORT_GO: ${{ inputs.go }}
+        EXPORT_PYTHON: ${{ inputs.python }}
+      run: |
+        set -euo pipefail
+
+        # Without ,direct so private module fetches have no fallback that
+        # could bypass the proxy and leak.
+        if [ "$EXPORT_GO" = 'true' ]; then
+          {
+            printf 'GOPROXY=https://packages.jorisjonkers.dev/go\n'
+            printf 'GOPRIVATE=github.com/JorisJonkers-dev/*\n'
+          } >> "$GITHUB_ENV"
+        fi
+
+        if [ "$EXPORT_PYTHON" = 'true' ]; then
+          {
+            printf 'PIP_INDEX_URL=https://packages.jorisjonkers.dev/pypi/simple/\n'
+            printf 'UV_DEFAULT_INDEX=https://packages.jorisjonkers.dev/pypi/simple/\n'
+          } >> "$GITHUB_ENV"
+        fi

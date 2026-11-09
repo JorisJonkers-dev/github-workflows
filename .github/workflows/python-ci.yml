@@ -12,7 +12,11 @@ on:
         description: Dependency install command.
         required: false
         type: string
-        default: python -m pip install -r requirements-dev.txt
+        # Pin the pip used for the upgrade; Renovate moves the pin. The
+        # --uploaded-prior-to cooldown keeps brand-new releases out of CI.
+        default: >-
+          python -m pip install --disable-pip-version-check "pip==26.2.2"
+          && python -m pip install --uploaded-prior-to P7D -r requirements-dev.txt
       lint-command:
         description: Ruff check command. The command must fail on diagnostics.
         required: false
