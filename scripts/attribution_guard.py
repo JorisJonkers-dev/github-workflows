@@ -56,6 +56,8 @@ BANNER = re.compile(
 )
 # A git trailer's key in its hyphenated form, such as Claude-Session.
 TRAILER_KEY = re.compile(r"^\s*(?P<key>[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+):\s")
+# A line that opens a markdown block: list item, heading, table row or quote.
+BLOCK_START = re.compile(r"^\s*(?:[-*+]\s|\d+[.)]\s|#{1,6}\s|\||>)")
 ROBOT = "\N{ROBOT FACE}"
 # Renovate's own checkboxes, such as "- [ ] <!-- manual-job -->🤖 Pick PR", carry a comment marker.
 RENOVATE_CHECKBOX = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s*<!--")
@@ -223,8 +225,9 @@ def text_findings(text: str, policy: Policy) -> list[str]:
     ("Reviewed by" then "Kimi K2.7", "Generated" then "with ...") is found by trying each line joined
     to the one or two lines before it in the same paragraph, and reported at the line it starts on."""
     findings = []
+    lines = text.splitlines()
     window: list[tuple[int, str]] = []
-    for number, line in enumerate(text.splitlines(), start=1):
+    for number, line in enumerate(lines, start=1):
         why = line_refusal(line, policy)
         if why is not None:
             findings.append(f"line {number}: {why}: {line.strip()}")
@@ -233,13 +236,18 @@ def text_findings(text: str, policy: Policy) -> list[str]:
         if not line.strip():
             window = []
             continue
-        window = [*window[-2:], (number, line)]
+        # A line that opens a list item, heading, table row or quote starts a new block.
+        window = [(number, line)] if BLOCK_START.match(line) else [*window[-2:], (number, line)]
         for size in (2, 3):
             if len(window) < size:
                 break
             start, _ = window[-size]
             joined = " ".join(part.strip() for _, part in window[-size:])
             if (why := credit_refusal(joined, policy)) is not None:
+                # A banner may name its generator on the next line: "generated\nwith\nRenovate".
+                following = lines[number].strip() if size == 2 and number < len(lines) else ""
+                if why.startswith('a "generated') and following and credit_refusal(f"{joined} {following}", policy) is None:
+                    break
                 findings.append(f"line {start}: {why}, split across lines: {joined}")
                 window = []
                 break

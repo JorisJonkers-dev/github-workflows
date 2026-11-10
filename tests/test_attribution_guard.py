@@ -221,6 +221,20 @@ class ReadingALine(unittest.TestCase):
         for text in ("Reviewed by\n\nKimi is a model family.", "Reviewed by\nthe maintainers.", "written by\nthe pipeline"):
             self.assertEqual(text_findings(text, POLICY), [], text)
 
+    def test_lines_are_not_joined_across_a_markdown_block_start(self) -> None:
+        for text in (
+            "Reviewed by the maintainers\n- Vibe config migrated",
+            "Written by the maintainers\n## Mistral notes",
+            "Changes made by hand\n1. Gemini quota docs updated",
+            "Reviewed by hand\n| Qwen | row |",
+            "Reviewed by hand\n> Kimi said so",
+        ):
+            self.assertEqual(text_findings(text, POLICY), [], text)
+
+    def test_a_banner_naming_its_generator_on_a_third_line_is_allowed(self) -> None:
+        self.assertEqual(text_findings("This PR was generated\nby\nMend Renovate.", POLICY), [])
+        self.assertEqual(len(text_findings("This PR was generated\nby\na script", POLICY)), 1)
+
     def test_a_line_that_is_refused_on_its_own_is_not_reported_again_with_its_neighbour(self) -> None:
         self.assertEqual(len(text_findings("Reviewed by Kimi K2.7.\nand Qwen", POLICY)), 1)
 
