@@ -113,9 +113,20 @@ def required_contexts(request: Request, slug: str, branch: str) -> list[str]:
 
 
 def reported_contexts(request: Request, slug: str, sha: str) -> set[str]:
-    runs = paginate(request, f"/repos/{slug}/commits/{sha}/check-runs", "check_runs")
+    """Every context the head commit reported: its Actions jobs' names and its statuses.
+
+    The jobs of the commit's workflow runs carry the same names as their check runs
+    ("Pipeline Complete", "repository-hygiene / Agent Attribution Guard"). They are read
+    through the Actions API, because the App this runs as can read Actions but not checks.
+    """
+    names: set[str] = set()
+    runs = paginate(request, f"/repos/{slug}/actions/runs", "workflow_runs", {"head_sha": sha})
+    for workflow_run in runs:
+        jobs = paginate(request, f"/repos/{slug}/actions/runs/{workflow_run['id']}/jobs", "jobs",
+                        {"filter": "all"})
+        names |= {job["name"] for job in jobs}
     statuses = paginate(request, f"/repos/{slug}/commits/{sha}/status", "statuses")
-    return {run["name"] for run in runs} | {status["context"] for status in statuses}
+    return names | {status["context"] for status in statuses}
 
 
 def sweep_pull(request: Request, slug: str, pull: dict, min_age: timedelta, now: datetime,

@@ -68,7 +68,8 @@ def world(prs=None, mergeable=True, required=("Pipeline Complete",), runs=(), st
         "/repos/o/r/pulls/1": {"mergeable": mergeable},
         "/repos/o/r/rules/branches/main": rules,
         "/repos/o/r/commits/abc": {"commit": {"committer": {"date": commit_date}}},
-        "/repos/o/r/commits/abc/check-runs": {"check_runs": [{"name": n} for n in runs]},
+        "/repos/o/r/actions/runs": {"workflow_runs": [{"id": 7}]},
+        "/repos/o/r/actions/runs/7/jobs": {"jobs": [{"name": n} for n in runs]},
         "/repos/o/r/commits/abc/status": {"statuses": [{"context": c} for c in statuses]},
         "/repos/o/r/issues/1/events": [{"event": e, "created_at": t} for e, t in events],
     })
@@ -155,15 +156,15 @@ class RetriggerTests(unittest.TestCase):
         run(fake)
         self.assertEqual(len(fake.writes()), 2)
 
-    def test_check_run_pagination(self):
+    def test_job_pagination(self):
         def pages(params):
             names = ["a", "b", "Pipeline Complete"]
             size = tool.PER_PAGE
             start = (params["page"] - 1) * size
-            return {"check_runs": [{"name": n} for n in names[start:start + size]]}
+            return {"jobs": [{"name": n} for n in names[start:start + size]]}
 
         fake = world()
-        fake.routes["/repos/o/r/commits/abc/check-runs"] = pages
+        fake.routes["/repos/o/r/actions/runs/7/jobs"] = pages
         with mock.patch.object(tool, "PER_PAGE", 2):
             run(fake)
         self.assertEqual(fake.writes(), [])
@@ -198,6 +199,17 @@ class RetriggerTests(unittest.TestCase):
                 "parameters": {"required_status_checks": [{"context": "Pipeline Complete"}]}}
         fake = Fake({"/repos/o/r/rules/branches/main": [rule, rule]})
         self.assertEqual(tool.required_contexts(fake, "o/r", "main"), ["Pipeline Complete"])
+
+    def test_jobs_of_every_run_of_the_head_commit_count(self):
+        fake = world(required=("Pipeline Complete", "repository-hygiene / Agent Attribution Guard"))
+        fake.routes["/repos/o/r/actions/runs"] = {"workflow_runs": [{"id": 7}, {"id": 8}]}
+        fake.routes["/repos/o/r/actions/runs/7/jobs"] = {"jobs": [{"name": "Pipeline Complete"}]}
+        fake.routes["/repos/o/r/actions/runs/8/jobs"] = {
+            "jobs": [{"name": "repository-hygiene / Agent Attribution Guard"}]}
+        run(fake)
+        self.assertEqual(fake.writes(), [])
+        runs_call = [c for c in fake.calls if c[1] == "/repos/o/r/actions/runs"][0]
+        self.assertEqual(runs_call[2]["head_sha"], "abc")
 
     def test_endless_pagination_stops_with_an_error(self):
         def always_full(method, path, params=None, body=None):
