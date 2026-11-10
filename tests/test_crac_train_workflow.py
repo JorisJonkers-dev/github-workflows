@@ -393,14 +393,14 @@ class MigrationReusableWorkflowSurfaceTest(unittest.TestCase):
         )
         self.assertIn("default: ruff check .", self.python_ci)
         self.assertIn("default: python -m unittest discover", self.python_ci)
-        self.assertIn("uses: cachix/install-nix-action@v31", self.nix_ci)
+        self.assertRegex(self.nix_ci, r"uses: cachix/install-nix-action@[0-9a-f]{40} # v31")
         self.assertIn("default: nix flake check --print-build-logs", self.nix_ci)
-        self.assertIn("uses: docker/build-push-action@v7", self.docker_image_ci)
+        self.assertRegex(self.docker_image_ci, r"uses: docker/build-push-action@[0-9a-f]{40} # v7")
         self.assertIn("push: false", self.docker_image_ci)
 
     def test_container_publish_tags_version_and_sha_only(self) -> None:
         self.assertIn("packages: write", self.container_publish)
-        self.assertIn("uses: docker/login-action@v4", self.container_publish)
+        self.assertRegex(self.container_publish, r"uses: docker/login-action@[0-9a-f]{40} # v4")
         self.assertIn('printf \'%s:%s\\n\' "$image_ref" "$VERSION"', self.container_publish)
         self.assertIn('printf \'%s:sha-%s\\n\' "$image_ref" "$GITHUB_SHA"', self.container_publish)
         self.assertNotIn(":latest", self.container_publish)
