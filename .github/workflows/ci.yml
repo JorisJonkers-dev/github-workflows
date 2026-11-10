@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install actionlint
         env:
@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The PyYAML the job installs goes through the packages proxy (JorisJonkers-dev/workspace#167).
       - uses: ./actions/setup-package-proxy
@@ -91,7 +91,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The coverage and PyYAML the suite installs go through the packages proxy (JorisJonkers-dev/workspace#167).
       - uses: ./actions/setup-package-proxy
@@ -99,7 +99,7 @@ jobs:
           token: ${{ secrets.PACKAGES_PROXY_TOKEN }}
           require-package-proxy: true
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.13'
 
@@ -178,6 +178,6 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Verify all gating jobs succeeded
-        uses: re-actors/alls-green@release/v1
+        uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # release/v1
         with:
           jobs: ${{ toJSON(needs) }}
