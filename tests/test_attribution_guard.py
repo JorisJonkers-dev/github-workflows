@@ -191,6 +191,39 @@ class ReadingALine(unittest.TestCase):
         ):
             self.assertEqual(line_refusal(line, POLICY), f'a credit to an AI ("{marker}")', line)
 
+    def test_a_credit_split_across_a_line_break_is_refused(self) -> None:
+        for text, line, marker in (
+            ("Thanks all, reviewed by\nmistral-large", 1, "mistral"),
+            ("Reviewed by\nKimi K2.7", 1, "kimi"),
+            ("ok\nReviewed\nby\nHaiku", 2, "haiku"),
+            ("Reviewed by the maintainers and by\nQwen 3.8 Flash (OpenCode, read-only)", 1, "qwen"),
+            ("Written by\n   GLM 5.3 through Vibe.", 1, "glm"),
+        ):
+            findings = text_findings(text, POLICY)
+            self.assertEqual(len(findings), 1, text)
+            self.assertTrue(findings[0].startswith(f"line {line}: a credit to an AI (\"{marker}\"), split across lines"), findings)
+
+    def test_a_wrapped_credit_whose_first_line_already_names_a_model_is_refused(self) -> None:
+        self.assertEqual(len(text_findings("Reviewed by deepseek-flash and\nmistral-large", POLICY)), 1)
+
+    def test_a_banner_split_across_a_line_break_is_refused(self) -> None:
+        for text in ("Generated\nwith a script", "Generated\n  by a tool", "This PR was generated\nwith a script"):
+            self.assertEqual(
+                text_findings(text, POLICY)[0].split(": ", 1)[1].split(", split")[0],
+                'a "generated with/by" banner',
+                text,
+            )
+
+    def test_a_renovate_banner_split_across_a_line_break_is_allowed(self) -> None:
+        self.assertEqual(text_findings("This PR was generated\nby Mend Renovate.", POLICY), [])
+
+    def test_lines_are_not_joined_across_a_paragraph_or_a_harmless_continuation(self) -> None:
+        for text in ("Reviewed by\n\nKimi is a model family.", "Reviewed by\nthe maintainers.", "written by\nthe pipeline"):
+            self.assertEqual(text_findings(text, POLICY), [], text)
+
+    def test_a_line_that_is_refused_on_its_own_is_not_reported_again_with_its_neighbour(self) -> None:
+        self.assertEqual(len(text_findings("Reviewed by Kimi K2.7.\nand Qwen", POLICY)), 1)
+
     def test_a_credit_to_a_person_or_tool_is_allowed(self) -> None:
         for line in (
             "oracle file is reviewed by hand and never written by CI, moves into 0088, and",

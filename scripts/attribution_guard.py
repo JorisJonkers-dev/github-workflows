@@ -171,6 +171,17 @@ def author_refusal(login: str, policy: Policy) -> str | None:
     return None if marker is None else f'{login} is an AI agent ("{marker}")'
 
 
+def credit_refusal(text: str, policy: Policy) -> str | None:
+    """Why text credits an AI as its author or reviewer, or carries a "generated with/by" banner."""
+    for credit in CREDIT.finditer(text):
+        tail = CLAUSE_END.split(credit.group("tail"), maxsplit=1)[0]
+        if (marker := policy.ai_word(tail)) is not None:
+            return f'a credit to an AI ("{marker}")'
+    if BANNER.match(text) and not any(generator in text.casefold() for generator in policy.generators):
+        return 'a "generated with/by" banner'
+    return None
+
+
 def line_refusal(line: str, policy: Policy) -> str | None:
     """Why a line of a commit message, title or body credits an AI, or None."""
     co_author = CO_AUTHOR.match(line)
@@ -195,12 +206,8 @@ def line_refusal(line: str, policy: Policy) -> str | None:
                 why = None if marker is None else f'"{value}" names an AI ("{marker}")'
             if why is not None:
                 return f"a {key} trailer credits an AI: {why}"
-    for credit in CREDIT.finditer(line):
-        tail = CLAUSE_END.split(credit.group("tail"), maxsplit=1)[0]
-        if (marker := policy.ai_word(tail)) is not None:
-            return f'a credit to an AI ("{marker}")'
-    if BANNER.match(line) and not any(generator in line.casefold() for generator in policy.generators):
-        return 'a "generated with/by" banner'
+    if (why := credit_refusal(line, policy)) is not None:
+        return why
     if ROBOT in line and not RENOVATE_CHECKBOX.match(line):
         return "the robot emoji"
     for email in EMAIL.finditer(line):
@@ -212,12 +219,30 @@ def line_refusal(line: str, policy: Policy) -> str | None:
 
 
 def text_findings(text: str, policy: Policy) -> list[str]:
-    """Every refused line of text, as "line N: why: the line"."""
+    """Every refused line of text, as "line N: why: the line". A credit wrapped across a line break
+    ("Reviewed by" then "Kimi K2.7", "Generated" then "with ...") is found by trying each line joined
+    to the one or two lines before it in the same paragraph, and reported at the line it starts on."""
     findings = []
+    window: list[tuple[int, str]] = []
     for number, line in enumerate(text.splitlines(), start=1):
         why = line_refusal(line, policy)
         if why is not None:
             findings.append(f"line {number}: {why}: {line.strip()}")
+            window = []
+            continue
+        if not line.strip():
+            window = []
+            continue
+        window = [*window[-2:], (number, line)]
+        for size in (2, 3):
+            if len(window) < size:
+                break
+            start, _ = window[-size]
+            joined = " ".join(part.strip() for _, part in window[-size:])
+            if (why := credit_refusal(joined, policy)) is not None:
+                findings.append(f"line {start}: {why}, split across lines: {joined}")
+                window = []
+                break
     return findings
 
 
