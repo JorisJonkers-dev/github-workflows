@@ -69,6 +69,10 @@
         {
           "type": "generic",
           "path": ".github/workflows/python-ci.yml"
+        },
+        {
+          "type": "generic",
+          "path": ".github/workflows/retrigger-missing-checks.yml"
         }
       ]
     }

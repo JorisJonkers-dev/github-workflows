@@ -1,0 +1,79 @@
+# Reopens open pull requests whose head commit never got a required status check.
+#
+# A branch ruleset can require a check (Pipeline Complete, repository-hygiene / Agent
+# Attribution Guard) that a pull request's runs never report: the check was added after the
+# pull request's last push, or its run was lost. GitHub then shows "Expected — Waiting for
+# status to be reported" with no end, and rerunning the old run reuses the old workflow file.
+# Closing and reopening starts fresh runs from the current workflows. Once per head commit,
+# only after the commit is min-age-minutes old, never for drafts, bot authors or conflicted
+# pull requests. scripts/retrigger_missing_checks.py holds the logic and its tests.
+#
+# The App token needs pull request write on every repository of the organization.
+name: 'Retrigger Missing Required Checks'
+
+'on':
+  'workflow_call':
+    'inputs':
+      'min-age-minutes':
+        'description': 'Act only on head commits at least this old.'
+        'required': false
+        'type': 'number'
+        'default': 30
+      'dry-run':
+        'description': 'Print what would be reopened, and reopen nothing.'
+        'required': false
+        'type': 'boolean'
+        'default': false
+    'secrets':
+      'HYGIENE_APP_ID':
+        'description': 'GitHub App id able to read rulesets and close and reopen pull requests org-wide.'
+        'required': false
+      'HYGIENE_APP_PRIVATE_KEY':
+        'description': 'Private key for that App.'
+        'required': false
+
+'permissions':
+  'contents': 'read'
+
+'jobs':
+  'retrigger':
+    'name': 'Retrigger Missing Required Checks'
+    'runs-on': 'ubuntu-latest'
+    'timeout-minutes': 20
+    'env':
+      'HYGIENE_APP_ID': '${{ secrets.HYGIENE_APP_ID }}'
+      'HYGIENE_APP_PRIVATE_KEY': '${{ secrets.HYGIENE_APP_PRIVATE_KEY }}'
+    'steps':
+      - 'name': 'Mint organization token'
+        'id': 'app-token'
+        'if': '${{ env.HYGIENE_APP_ID != '''' && env.HYGIENE_APP_PRIVATE_KEY != '''' }}'
+        'uses': 'actions/create-github-app-token@v3'
+        'with':
+          'app-id': '${{ env.HYGIENE_APP_ID }}'
+          'private-key': '${{ env.HYGIENE_APP_PRIVATE_KEY }}'
+          'owner': '${{ github.repository_owner }}'
+          'permission-pull-requests': 'write'
+          'permission-issues': 'read'
+          'permission-checks': 'read'
+          'permission-statuses': 'read'
+          'permission-administration': 'read'
+          'permission-metadata': 'read'
+
+      - 'uses': 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # v7.0.1
+        'with':
+          'repository': 'JorisJonkers-dev/github-workflows'
+          'ref': 'v0.48.0' # x-release-please-version
+          'path': '.github-workflows'
+          'persist-credentials': false
+
+      - 'name': 'Reopen pull requests missing a required check'
+        'env':
+          'GITHUB_TOKEN': '${{ steps.app-token.outputs.token || github.token }}'
+          'ORG': '${{ github.repository_owner }}'
+          'MIN_AGE': '${{ inputs.min-age-minutes }}'
+          'DRY_RUN': '${{ inputs.dry-run }}'
+        'run': |
+          set -euo pipefail
+          args=(--org "$ORG" --min-age-minutes "$MIN_AGE")
+          if [ "$DRY_RUN" = true ]; then args+=(--dry-run); fi
+          python3 .github-workflows/scripts/retrigger_missing_checks.py "${args[@]}"
