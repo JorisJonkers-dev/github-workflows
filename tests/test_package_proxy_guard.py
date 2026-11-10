@@ -360,6 +360,10 @@ jobs:
   mise:
     steps:
       - run: mise install node
+  flags-and-alias:
+    steps:
+      - run: task --yes install
+      - run: mise i node
   covered:
     steps:
       - uses: JorisJonkers-dev/github-workflows/actions/setup-package-proxy@v0.48.0
@@ -387,11 +391,11 @@ class TaskRunnerInstalls(unittest.TestCase):
 
     def test_task_and_mise_installs_without_proxy_setup_are_reported(self) -> None:
         found = [(f.line, f.message.split(" runs")[0]) for f in self.findings if f.rule == "uncovered-install"]
-        self.assertEqual([(7, "task install"), (10, "mise run install"), (13, "mise install")], found)
+        self.assertEqual([(7, "task install"), (10, "mise run install"), (13, "mise install"), (16, "task --yes install"), (17, "mise i")], found)
 
     def test_unrelated_task_targets_and_covered_jobs_are_not_reported(self) -> None:
         lines = [f.line for f in self.findings if f.rule == "uncovered-install"]
-        self.assertFalse(any(line >= 15 for line in lines))
+        self.assertFalse(any(line >= 18 for line in lines))
 
     def test_dockerfile_run_is_not_matched(self) -> None:
         self.assertEqual([], [f for f in self.findings if f.path == "Dockerfile"])

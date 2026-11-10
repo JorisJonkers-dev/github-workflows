@@ -103,9 +103,9 @@ INSTALLERS = (
 # cannot read. Workflow run lines only: a Dockerfile RUN is not matched, and the
 # reusable workflows' own derivation (match_installer) is unaffected.
 TASK_RUNNER_INSTALLERS = (
-    (re.compile(r"(?<![\w./-])task install(?![\w:./-])"), "task", None),
+    (re.compile(r"(?<![\w./-])task (?:-[-\w]+ )*install(?![\w:./-])"), "task", None),
     (re.compile(r"(?<![\w./-])mise run install(?![\w:./-])"), "mise", None),
-    (re.compile(r"(?<![\w./-])mise install(?![\w:./-])"), "mise", None),
+    (re.compile(r"(?<![\w./-])mise (?:install|i)(?![\w:./-])"), "mise", None),
 )
 
 # The Dockerfile secret mount each manager's installs need. Cargo and jvm have none.
