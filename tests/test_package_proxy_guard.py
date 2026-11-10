@@ -708,3 +708,95 @@ class Helpers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+APK_PATTERN = """\
+RUN --mount=type=secret,id=packages-netrc,target=/root/.netrc,required=false \\
+    set -e; \\
+    repos=""; \\
+    if [ -s /root/.netrc ]; then \\
+      v=$(cut -d. -f1,2 /etc/alpine-release); \\
+      repos="--repositories-file /dev/null --repository https://packages.jorisjonkers.dev/apk/alpine/v$v/main"; \\
+    fi; \\
+    apk add --no-cache $repos curl
+"""
+APT_PATTERN = """\
+RUN --mount=type=secret,id=packages-netrc,target=/etc/apt/auth.conf,required=false \\
+    echo "deb https://packages.jorisjonkers.dev/debian bookworm main" > /etc/apt/sources.list && \\
+    apt-get install -y curl
+"""
+
+
+class OsPackages(unittest.TestCase):
+    def scan(self, text: str) -> list[guard.Finding]:
+        findings: list[guard.Finding] = []
+        guard.scan_dockerfile("Dockerfile", text, findings)
+        return [f for f in findings if f.rule == "dockerfile-os-packages"]
+
+    def test_the_estate_apk_pattern_is_not_reported(self) -> None:
+        self.assertEqual([], self.scan("FROM alpine:3.20\n" + APK_PATTERN))
+
+    def test_the_estate_apt_pattern_is_not_reported(self) -> None:
+        self.assertEqual([], self.scan("FROM debian:12\n" + APT_PATTERN))
+
+    def test_bare_apk_add_is_reported_at_the_run_line(self) -> None:
+        found = self.scan("FROM alpine:3.20\n\nRUN apk add --no-cache git\n")
+        self.assertEqual([3], [f.line for f in found])
+        self.assertIn("packages-netrc secret mount", found[0].message)
+        self.assertIn("https://packages.jorisjonkers.dev/apk/", found[0].message)
+
+    def test_apk_with_the_mount_but_no_proxy_url_is_reported(self) -> None:
+        text = "RUN --mount=type=secret,id=packages-netrc,target=/root/.netrc \\\n    apk add git\n"
+        found = self.scan(text)
+        self.assertEqual([1], [f.line for f in found])
+        self.assertNotIn("secret mount", found[0].message)
+        self.assertIn("https://packages.jorisjonkers.dev/apk/", found[0].message)
+
+    def test_apk_with_the_url_but_no_mount_is_reported(self) -> None:
+        text = "RUN apk add --repository https://packages.jorisjonkers.dev/apk/alpine/v3.20/main git\n"
+        found = self.scan(text)
+        self.assertEqual([1], [f.line for f in found])
+        self.assertIn("packages-netrc secret mount", found[0].message)
+        self.assertNotIn("https://packages.jorisjonkers.dev/apk/", found[0].message)
+
+    def test_bare_apt_get_install_is_reported(self) -> None:
+        found = self.scan("RUN apt-get update && apt-get install -y curl\n")
+        self.assertEqual([1], [f.line for f in found])
+        self.assertIn("https://packages.jorisjonkers.dev/debian", found[0].message)
+
+    def test_bare_apt_install_is_reported(self) -> None:
+        self.assertEqual([1], [f.line for f in self.scan("RUN apt install -y curl\n")])
+
+    def test_apt_with_the_mount_but_no_proxy_url_is_reported(self) -> None:
+        text = "RUN --mount=type=secret,id=packages-netrc,target=/etc/apt/auth.conf apt-get install -y curl\n"
+        found = self.scan(text)
+        self.assertEqual([1], [f.line for f in found])
+        self.assertNotIn("secret mount", found[0].message)
+
+    def test_apt_with_the_url_but_no_mount_is_reported(self) -> None:
+        found = self.scan("RUN echo https://packages.jorisjonkers.dev/debian && apt-get install curl\n")
+        self.assertEqual([1], [f.line for f in found])
+        self.assertIn("packages-netrc secret mount", found[0].message)
+
+    def test_apk_url_does_not_satisfy_apt(self) -> None:
+        text = APK_PATTERN.replace("apk add --no-cache $repos curl", "apk add curl; apt-get install curl")
+        self.assertEqual(1, len(self.scan(text)))
+
+    def test_apk_del_and_update_alone_are_not_reported(self) -> None:
+        self.assertEqual([], self.scan("RUN apk update && apk del git\nRUN apt-get update\n"))
+
+    def test_only_the_unproxied_stage_is_reported(self) -> None:
+        text = "FROM alpine:3.20 AS build\n" + APK_PATTERN + "FROM alpine:3.20\nRUN apk add git\n"
+        self.assertEqual([11], [f.line for f in self.scan(text)])
+
+    def test_allowlist_suppresses_the_rule(self) -> None:
+        root = make_tree(
+            {
+                "Dockerfile": "FROM alpine:3.20\nRUN apk add git\n",
+                "ci/Dockerfile": "FROM alpine:3.20\nRUN apk add git\n",
+                ".github/package-proxy-allow.txt": "ci/Dockerfile base image has no proxy\n",
+            }
+        )
+        findings, suppressed = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual(1, suppressed)
+        self.assertEqual([("Dockerfile", "dockerfile-os-packages")], [(f.path, f.rule) for f in findings])
