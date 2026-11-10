@@ -2,7 +2,7 @@
 """Find package installs in a caller's checkout that bypass the packages proxy.
 
 Every JorisJonkers-dev repository installs third-party packages through
-packages.jorisjonkers.dev. This guard scans a checkout and reports eight rules:
+packages.jorisjonkers.dev. This guard scans a checkout and reports nine rules:
 
 - uncovered-install: a workflow step runs an installer (npm, pnpm, yarn, pip,
   uv, cargo, go, gradle, ./gradlew, mvn, ./mvnw) in a job that sets up the proxy
@@ -19,6 +19,10 @@ packages.jorisjonkers.dev. This guard scans a checkout and reports eight rules:
   mount. It also reports a RUN that uses an index build arg (GOPROXY,
   PIP_INDEX_URL, UV_DEFAULT_INDEX) its stage does not declare. A FROM starts a
   new stage, so ARG declarations do not carry across stages.
+- dockerfile-os-packages: a Dockerfile RUN runs apk add without the packages-netrc
+  secret mount and https://packages.jorisjonkers.dev/apk/, or apt-get install /
+  apt install without the mount and https://packages.jorisjonkers.dev/debian. The
+  mount and the URL must be in the same RUN.
 - npmrc-registry: a committed .npmrc sets registry= to anything but the proxy.
 - gradle-repository: a Gradle build file names a third-party Maven repository
   URL directly. mavenCentral(), gradlePluginPortal() and google() are allowed,
@@ -29,7 +33,7 @@ packages.jorisjonkers.dev. This guard scans a checkout and reports eight rules:
   https://packages.jorisjonkers.dev/helm/.
 - allowlist: an entry in .github/package-proxy-allow.txt has no reason.
 
-OS packages (apt, apk) are out of scope. Installers are matched by text on run:
+Installers are matched by text on run:
 lines, so an installer inside a script file is not seen.
 
 Allowlist lines are "<path glob> <reason>". A finding whose path matches an
@@ -117,6 +121,12 @@ INLINE_PROXY_RE = re.compile(
     r"|(?:PIP_INDEX_URL|UV_DEFAULT_INDEX|GOPROXY)=https://packages\.jorisjonkers\.dev"
     r"|registry=https://packages\.jorisjonkers\.dev/npm/"
 )
+# OS package installs and, for each, the proxy URL its RUN must mention.
+OS_INSTALLERS = (
+    (re.compile(r"\bapk\s+add\b"), "apk add", "https://packages.jorisjonkers.dev/apk/"),
+    (re.compile(r"\bapt(?:-get)?\s+install\b"), "apt install", "https://packages.jorisjonkers.dev/debian"),
+)
+OS_MOUNT = "id=packages-netrc"
 URL_RE = re.compile(r"https?://[^\s\"')]+")
 GRADLE_KEYWORD_RE = re.compile(r"maven|url|uri\(")
 NPMRC_REGISTRY_RE = re.compile(r"^\s*registry\s*=\s*(\S+)")
@@ -271,6 +281,27 @@ def dockerfile_instructions(text: str):
         yield start, " ".join(parts)
 
 
+def scan_os_packages(rel: str, number: int, instruction: str, findings: list[Finding]) -> None:
+    """Report a RUN that installs OS packages without the netrc mount or the proxy repository URL."""
+    for pattern, command, url in OS_INSTALLERS:
+        if not pattern.search(instruction):
+            continue
+        missing = []
+        if OS_MOUNT not in instruction:
+            missing.append("the packages-netrc secret mount")
+        if url not in instruction:
+            missing.append(url)
+        if missing:
+            findings.append(
+                Finding(
+                    rel,
+                    number,
+                    "dockerfile-os-packages",
+                    f"RUN installs OS packages ({command}) without {' and '.join(missing)}",
+                )
+            )
+
+
 def scan_dockerfile(rel: str, text: str, findings: list[Finding]) -> None:
     declared: set[str] = set()
     for number, instruction in dockerfile_instructions(text):
@@ -281,6 +312,7 @@ def scan_dockerfile(rel: str, text: str, findings: list[Finding]) -> None:
         elif keyword == "ARG" and len(words) > 1:
             declared.add(words[1].split("=")[0])
         elif keyword == "RUN":
+            scan_os_packages(rel, number, instruction, findings)
             hit = match_installer(instruction)
             if hit is None:
                 continue
