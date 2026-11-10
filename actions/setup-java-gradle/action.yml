@@ -141,6 +141,37 @@ runs:
         }
         KTS
 
+    - name: Configure Gradle wrapper credentials
+      if: ${{ inputs.packages-proxy-token != '' }}
+      shell: bash
+      env:
+        PACKAGES_PROXY_TOKEN: ${{ inputs.packages-proxy-token }}
+      run: |
+        set -euo pipefail
+
+        # The proxy serves Gradle distributions behind Basic auth; the wrapper
+        # reads its credentials from these system properties in the Gradle
+        # user home.
+        if [ -z "$PACKAGES_PROXY_TOKEN" ]; then
+          exit 0
+        fi
+        printf '::add-mask::%s\n' "$PACKAGES_PROXY_TOKEN"
+
+        gradle_home="${GRADLE_USER_HOME:-$HOME/.gradle}"
+        props="$gradle_home/gradle.properties"
+        mkdir -p "$gradle_home"
+        umask 077
+        tmp="$(mktemp "$gradle_home/gradle.properties.XXXXXX")"
+        {
+          if [ -f "$props" ]; then
+            grep -Ev '^[[:space:]]*systemProp\.gradle\.wrapper(User|Password)[[:space:]]*[=:]' "$props" || true
+          fi
+          printf 'systemProp.gradle.wrapperUser=packages\n'
+          printf 'systemProp.gradle.wrapperPassword=%s\n' "$PACKAGES_PROXY_TOKEN"
+        } > "$tmp"
+        chmod 600 "$tmp"
+        mv "$tmp" "$props"
+
     - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
       with:
         distribution: ${{ inputs.java-distribution }}
