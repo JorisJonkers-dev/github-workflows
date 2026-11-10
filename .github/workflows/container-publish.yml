@@ -79,10 +79,6 @@ jobs:
           OVERRIDE: ${{ inputs.software-version }}
         run: bash .github-workflows/actions/container-publish/software-version.sh
 
-      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
-
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
       - name: Log in to GHCR
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -128,6 +124,37 @@ jobs:
             printf 'npmrc=%s\n' "$npmrc"
             printf 'enabled=true\n'
           } >> "$GITHUB_OUTPUT"
+
+      # BuildKit reads a mirror's credentials from the host's Docker config,
+      # so the proxy login runs before the builder and the build. Without a
+      # token the step's if is false and nothing changes.
+      - name: Log in to the packages proxy registry
+        if: steps.proxy.outputs.enabled == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: packages.jorisjonkers.dev
+          username: packages
+          password: ${{ secrets.PACKAGES_PROXY_TOKEN || secrets.packages-proxy-token }}
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          # With a token, base images pull through the proxy: it mirrors
+          # Docker Hub, ghcr.io, gcr.io and quay.io over the OCI
+          # distribution API. BuildKit falls back to the registry itself
+          # when the mirror cannot serve an image, so our private
+          # ghcr.io/jorisjonkers-dev/* images still pull from GHCR. Without
+          # a token every line renders empty: no mirror.
+          buildkitd-config-inline: |
+            ${{ steps.proxy.outputs.enabled == 'true' && '[registry."docker.io"]' || '' }}
+            ${{ steps.proxy.outputs.enabled == 'true' && '  mirrors = ["packages.jorisjonkers.dev"]' || '' }}
+            ${{ steps.proxy.outputs.enabled == 'true' && '[registry."ghcr.io"]' || '' }}
+            ${{ steps.proxy.outputs.enabled == 'true' && '  mirrors = ["packages.jorisjonkers.dev"]' || '' }}
+            ${{ steps.proxy.outputs.enabled == 'true' && '[registry."gcr.io"]' || '' }}
+            ${{ steps.proxy.outputs.enabled == 'true' && '  mirrors = ["packages.jorisjonkers.dev"]' || '' }}
+            ${{ steps.proxy.outputs.enabled == 'true' && '[registry."quay.io"]' || '' }}
+            ${{ steps.proxy.outputs.enabled == 'true' && '  mirrors = ["packages.jorisjonkers.dev"]' || '' }}
 
       - name: Resolve image tags
         id: image

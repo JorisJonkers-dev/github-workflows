@@ -232,6 +232,130 @@ class PackageProxyBuildKitSecretFiles(unittest.TestCase):
                 failures.append(f"{rel}: names packages-netrc but has no secret-files input")
         self.assertEqual([], failures)
 
+
+# The proxy serves container images over the OCI distribution API too, and the
+# three image-building reusable workflows pull base images through it.
+PROXY_REGISTRY = "packages.jorisjonkers.dev"
+MIRROR_BUILD_WORKFLOWS = (
+    "container-publish.yml",
+    "docker-image-ci.yml",
+    "crac-train.yml",
+)
+MIRRORED_REGISTRIES = ("docker.io", "ghcr.io", "gcr.io", "quay.io")
+# A mirror line in the buildkitd config is a conditional that renders empty
+# without a token, so a proxy-less build changes nothing.
+GATED_MIRROR_LINE = r"^\$\{\{ steps\.proxy\.outputs\.enabled == 'true' && '.*' \|\| '' \}\}$"
+
+
+class PackageProxyRegistryMirror(unittest.TestCase):
+    """A build with a token pulls its base images through the proxy too.
+
+    The proxy mirrors docker.io, ghcr.io, gcr.io and quay.io, and BuildKit
+    takes a mirror's credentials from the host's Docker config, so each image
+    build logs in to the proxy with docker/login-action as the user
+    `packages` and names it a mirror of the four public registries in
+    setup-buildx-action's inline buildkitd config. BuildKit falls back to the
+    registry itself when the mirror cannot serve an image, so the estate's
+    private ghcr.io/jorisjonkers-dev/* images still pull from GHCR. The
+    login's `if` and every config line's conditional render empty without a
+    token: no login, no mirror, nothing changes.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.steps = {}
+        for name in MIRROR_BUILD_WORKFLOWS:
+            doc = yaml.safe_load((ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8"))
+            cls.steps[name] = [
+                step for job in doc["jobs"].values() for step in (job.get("steps") or [])
+            ]
+
+    def _proxy_login_indexes(self, steps: list) -> list[int]:
+        return [
+            index
+            for index, step in enumerate(steps)
+            if str(step.get("uses", "")).startswith("docker/login-action")
+            and str((step.get("with") or {}).get("registry", "")) == PROXY_REGISTRY
+        ]
+
+    def _buildkitd_config(self, steps: list) -> str:
+        setups = [
+            step
+            for step in steps
+            if str(step.get("uses", "")).startswith("docker/setup-buildx-action")
+        ]
+        self.assertEqual(1, len(setups), "expected exactly one setup-buildx step")
+        return str((setups[0].get("with") or {}).get("buildkitd-config-inline") or "")
+
+    def test_each_build_logs_in_to_the_proxy_only_with_a_token(self) -> None:
+        for name, steps in self.steps.items():
+            with self.subTest(workflow=name):
+                logins = self._proxy_login_indexes(steps)
+                self.assertEqual(1, len(logins), "expected exactly one proxy login step")
+                login = steps[logins[0]]
+                self.assertIn("steps.proxy.outputs.enabled == 'true'", login["if"])
+                self.assertEqual("packages", login["with"]["username"])
+                self.assertIn("PACKAGES_PROXY_TOKEN", login["with"]["password"])
+
+    def test_each_buildx_names_the_proxy_a_mirror_of_every_public_registry(self) -> None:
+        for name, steps in self.steps.items():
+            with self.subTest(workflow=name):
+                inline = self._buildkitd_config(steps)
+                for registry in MIRRORED_REGISTRIES:
+                    self.assertIn(f'[registry."{registry}"]', inline)
+                self.assertEqual(
+                    len(MIRRORED_REGISTRIES), inline.count(f'mirrors = ["{PROXY_REGISTRY}"]')
+                )
+                self.assertNotIn("PACKAGES_PROXY_TOKEN", inline)
+
+    def test_the_mirror_lines_exist_only_with_a_token(self) -> None:
+        for name, steps in self.steps.items():
+            with self.subTest(workflow=name):
+                inline = self._buildkitd_config(steps)
+                lines = [line.strip() for line in inline.splitlines() if line.strip()]
+                self.assertEqual(2 * len(MIRRORED_REGISTRIES), len(lines))
+                for line in lines:
+                    self.assertRegex(line, GATED_MIRROR_LINE)
+
+    def test_the_proxy_login_runs_before_the_build(self) -> None:
+        for name, steps in self.steps.items():
+            with self.subTest(workflow=name):
+                logins = self._proxy_login_indexes(steps)
+                self.assertEqual(1, len(logins), "expected exactly one proxy login step")
+                builds = [
+                    index
+                    for index, step in enumerate(steps)
+                    if str(step.get("uses", "")).startswith("docker/build-push-action")
+                ]
+                self.assertEqual(1, len(builds), "expected exactly one build step")
+                self.assertLess(logins[0], builds[0])
+
+    def test_the_proxy_login_runs_after_the_proxy_step_and_before_buildx_setup(self) -> None:
+        for name, steps in self.steps.items():
+            with self.subTest(workflow=name):
+                logins = self._proxy_login_indexes(steps)
+                self.assertEqual(1, len(logins), "expected exactly one proxy login step")
+                proxy = [i for i, step in enumerate(steps) if step.get("id") == "proxy"]
+                setups = [
+                    i
+                    for i, step in enumerate(steps)
+                    if str(step.get("uses", "")).startswith("docker/setup-buildx-action")
+                ]
+                self.assertEqual(1, len(proxy))
+                self.assertEqual(1, len(setups))
+                self.assertLess(proxy[0], logins[0])
+                self.assertLess(logins[0], setups[0])
+
+    def test_every_action_in_the_mirror_workflows_is_pinned_by_full_sha(self) -> None:
+        for name, steps in self.steps.items():
+            with self.subTest(workflow=name):
+                for step in steps:
+                    uses = step.get("uses")
+                    if uses is None or str(uses).startswith("./"):
+                        continue
+                    self.assertRegex(str(uses), r"@[0-9a-f]{40}$", f"{uses} is not SHA-pinned")
+
+
 class PackageProxyTokenNotInProxyUrls(unittest.TestCase):
     def test_setup_actions_keep_token_out_of_proxy_urls(self) -> None:
         paths = [
