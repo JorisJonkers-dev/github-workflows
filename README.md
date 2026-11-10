@@ -128,7 +128,8 @@ caller's checkout. It reports six rules:
 
 - `uncovered-install`: an installer (npm, pnpm or yarn install or ci, pip
   install, uv sync or pip, cargo build, fetch or install, go mod download, tidy,
-  build, test or install, gradle, `./gradlew`, mvn or `./mvnw`) that runs in a
+  build, test or install, gradle, `./gradlew`, mvn or `./mvnw`, or a task runner
+  that installs: `task install`, `mise run install`, `mise install`) that runs in a
   job before any step sets up the proxy. A covering step is
   `setup-package-proxy`, `setup-java-gradle` or `setup-node` given its token, or
   a run step that writes the proxy netrc or sets the proxy index variables. Only
