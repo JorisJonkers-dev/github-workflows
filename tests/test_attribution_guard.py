@@ -444,6 +444,14 @@ class TheWorkflow(unittest.TestCase):
         self.assertIn("'PR_BODY': '${{ github.event.pull_request.body }}'", self.text)
         self.assertIn("'PR_AUTHOR': '${{ github.event.pull_request.user.login }}'", self.text)
 
+    def test_no_job_fetches_the_base_with_credentials_stripped_or_a_depth(self) -> None:
+        # persist-credentials false makes a later git fetch fail in private repositories, and a
+        # --depth fetch over the full clone drops the base history (no merge base).
+        for line in self.text.splitlines():
+            code = line.split("#", 1)[0]
+            self.assertNotIn("--depth", code)
+            self.assertNotRegex(code, r"git fetch .*refs/heads/")
+
 
 if __name__ == "__main__":
     unittest.main()
