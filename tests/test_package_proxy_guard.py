@@ -459,6 +459,32 @@ class HelmRepository(unittest.TestCase):
         self.oci_proxy_url = "oci://packages.jorisjonkers.dev/helm/"
         self.oci_upstream_url = "oci://ghcr.io/example/charts"
 
+    def test_another_flux_source_kind_is_not_reported(self) -> None:
+        root = make_tree({
+            "flux/git.yaml": """apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: app
+spec:
+  url: https://github.com/example/app
+"""
+        })
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([], findings)
+
+    def test_helm_repository_without_a_url_is_not_reported(self) -> None:
+        root = make_tree({
+            "flux/repo.yaml": """apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: incomplete
+spec:
+  interval: 1h
+"""
+        })
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([], findings)
+
     def test_helm_repository_with_upstream_url_is_reported(self) -> None:
         files = {
             "clusters/my-cluster/flux/repositories.yaml": f"""---
