@@ -401,6 +401,271 @@ class Main(unittest.TestCase):
         self.assertEqual(2, raised.exception.code)
 
 
+class GradleWrapper(unittest.TestCase):
+    def setUp(self) -> None:
+        self.proxy_url = r"https\://packages.jorisjonkers.dev/generic/gradle/distributions/gradle-9.2.0-bin.zip"
+        self.upstream_url = r"https\://services.gradle.org/distributions/gradle-9.2.0-bin.zip"
+
+    def test_gradle_wrapper_reports_the_distribution_url_line(self) -> None:
+        files = {
+            "app/gradle/wrapper/gradle-wrapper.properties": f"#Comment\nnetworkTimeout=10000\ndistributionUrl={self.upstream_url}\n"
+        }
+        root = make_tree(files)
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([("app/gradle/wrapper/gradle-wrapper.properties", 3)], [(f.path, f.line) for f in findings])
+
+    def test_gradle_wrapper_with_upstream_url_is_reported(self) -> None:
+        files = {
+            "gradle/wrapper/gradle-wrapper.properties": f"distributionUrl={self.upstream_url}\n"
+        }
+        root = make_tree(files)
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("gradle-wrapper", findings[0].rule)
+        self.assertEqual(1, findings[0].line)
+        self.assertIn("distributionUrl must be https://packages.jorisjonkers.dev/", findings[0].message)
+
+    def test_gradle_wrapper_with_proxy_url_is_not_reported(self) -> None:
+        files = {
+            "gradle/wrapper/gradle-wrapper.properties": f"distributionUrl={self.proxy_url}\n"
+        }
+        root = make_tree(files)
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([], findings)
+
+    def test_gradle_wrapper_without_distribution_url_is_not_reported(self) -> None:
+        files = {
+            "gradle/wrapper/gradle-wrapper.properties": "some.other.property=value\n"
+        }
+        root = make_tree(files)
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([], findings)
+
+    def test_gradle_wrapper_allowlisted_path_is_not_reported(self) -> None:
+        files = {
+            "gradle/wrapper/gradle-wrapper.properties": f"distributionUrl={self.upstream_url}\n",
+            ".github/package-proxy-allow.txt": "gradle/wrapper/** pinned by infra\n"
+        }
+        root = make_tree(files)
+        findings, suppressed = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual(1, suppressed)
+        self.assertEqual([], findings)
+
+
+class HelmRepository(unittest.TestCase):
+    def setUp(self) -> None:
+        self.proxy_url = "https://packages.jorisjonkers.dev/helm/"
+        self.upstream_url = "https://charts.bitnami.com/bitnami"
+        self.oci_proxy_url = "oci://packages.jorisjonkers.dev/helm/"
+        self.oci_upstream_url = "oci://ghcr.io/example/charts"
+
+    def test_another_flux_source_kind_is_not_reported(self) -> None:
+        root = make_tree({
+            "flux/git.yaml": """apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: app
+spec:
+  url: https://github.com/example/app
+"""
+        })
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([], findings)
+
+    def test_helm_repository_without_a_url_is_not_reported(self) -> None:
+        root = make_tree({
+            "flux/repo.yaml": """apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: incomplete
+spec:
+  interval: 1h
+"""
+        })
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([], findings)
+
+    def test_helm_repository_with_upstream_url_is_reported(self) -> None:
+        files = {
+            "clusters/my-cluster/flux/repositories.yaml": f"""---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: bitnami
+spec:
+  url: {self.upstream_url}
+"""
+        }
+        root = make_tree(files)
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("helm-repository", findings[0].rule)
+        self.assertEqual(7, findings[0].line)
+
+    def test_helm_repository_with_proxy_url_is_not_reported(self) -> None:
+        files = {
+            "clusters/my-cluster/flux/repositories.yaml": f"""---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: bitnami
+spec:
+  url: {self.proxy_url}
+"""
+        }
+        root = make_tree(files)
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([], findings)
+
+    def test_helm_repository_with_oci_proxy_url_is_not_reported(self) -> None:
+        files = {
+            "clusters/my-cluster/flux/repositories.yaml": f"""---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: bitnami
+spec:
+  type: oci
+  url: {self.oci_proxy_url}
+"""
+        }
+        root = make_tree(files)
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([], findings)
+
+    def test_helm_repository_with_oci_upstream_url_is_reported(self) -> None:
+        files = {
+            "clusters/my-cluster/flux/repositories.yaml": f"""---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: bitnami
+spec:
+  type: oci
+  url: {self.oci_upstream_url}
+"""
+        }
+        root = make_tree(files)
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual(1, len(findings))
+        self.assertEqual("helm-repository", findings[0].rule)
+
+    def test_non_helmrepository_kind_is_not_reported(self) -> None:
+        files = {
+            "clusters/my-cluster/flux/releases.yaml": f"""---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: nginx
+spec:
+  chart:
+    spec:
+      chart: nginx
+      sourceRef:
+        kind: HelmRepository
+        name: bitnami
+      version: '15.x'
+"""
+        }
+        root = make_tree(files)
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([], findings)
+
+    def test_non_fluxcd_apiversion_is_not_reported(self) -> None:
+        files = {
+            "clusters/my-cluster/flux/repositories.yaml": f"""---
+apiVersion: example.com/v1
+kind: HelmRepository
+metadata:
+  name: bitnami
+spec:
+  url: {self.upstream_url}
+"""
+        }
+        root = make_tree(files)
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([], findings)
+
+    def test_invalid_yaml_is_skipped(self) -> None:
+        files = {
+            "clusters/my-cluster/flux/repositories.yaml": "[unclosed"
+        }
+        root = make_tree(files)
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([], findings)
+
+    def test_helm_repository_allowlisted_path_is_not_reported(self) -> None:
+        files = {
+            "clusters/my-cluster/flux/repositories.yaml": f"""---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: bitnami
+spec:
+  url: {self.upstream_url}
+""",
+            ".github/package-proxy-allow.txt": "clusters/my-cluster/flux/** pinned by infra\n"
+        }
+        root = make_tree(files)
+        findings, suppressed = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual(1, suppressed)
+        self.assertEqual([], findings)
+
+    def test_helm_repository_reports_line_of_its_own_spec_url_in_multi_document_file(self) -> None:
+        files = {
+            "flux/repositories.yaml": f"""---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: other
+data:
+  url: https://example.com
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: bitnami
+spec:
+  interval: 1h
+  url: {self.upstream_url}
+"""
+        }
+        root = make_tree(files)
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([("flux/repositories.yaml", 15)], [(f.path, f.line) for f in findings])
+
+    def test_helm_repository_reports_spec_url_not_an_earlier_url_key(self) -> None:
+        files = {
+            "flux/repositories.yaml": f"""apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: bitnami
+  annotations:
+    url: https://example.com/docs
+spec:
+  interval: 1h
+  url: {self.upstream_url}
+"""
+        }
+        root = make_tree(files)
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([9], [f.line for f in findings])
+
+    def test_each_non_proxy_helm_repository_in_a_file_is_reported_at_its_own_line(self) -> None:
+        doc = "apiVersion: source.toolkit.fluxcd.io/v1\nkind: HelmRepository\nmetadata:\n  name: {n}\nspec:\n  url: {u}\n"
+        text = doc.format(n="a", u=self.upstream_url) + "---\n" + doc.format(n="b", u=self.upstream_url)
+        root = make_tree({"flux/repositories.yaml": text})
+        findings, _ = guard.collect(root, guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([6, 13], [f.line for f in findings])
+
+    def test_helm_repository_in_workflows_directory_is_not_scanned(self) -> None:
+        files = {
+            ".github/workflows/x.yml": f"apiVersion: source.toolkit.fluxcd.io/v1\nkind: HelmRepository\nspec:\n  url: {self.upstream_url}\n"
+        }
+        findings, _ = guard.collect(make_tree(files), guard.DEFAULT_ALLOWLIST)
+        self.assertEqual([], [f for f in findings if f.rule == "helm-repository"])
+
+
 class Helpers(unittest.TestCase):
     def test_match_installer_returns_none_for_plain_commands(self) -> None:
         self.assertIsNone(guard.match_installer("echo hello"))

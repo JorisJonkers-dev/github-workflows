@@ -2,7 +2,7 @@
 """Find package installs in a caller's checkout that bypass the packages proxy.
 
 Every JorisJonkers-dev repository installs third-party packages through
-packages.jorisjonkers.dev. This guard scans a checkout and reports six rules:
+packages.jorisjonkers.dev. This guard scans a checkout and reports eight rules:
 
 - uncovered-install: a workflow step runs an installer (npm, pnpm, yarn, pip,
   uv, cargo, go, gradle, ./gradlew, mvn, ./mvnw) in a job that sets up the proxy
@@ -23,6 +23,10 @@ packages.jorisjonkers.dev. This guard scans a checkout and reports six rules:
 - gradle-repository: a Gradle build file names a third-party Maven repository
   URL directly. mavenCentral(), gradlePluginPortal() and google() are allowed,
   because the init script replaces them in CI.
+- gradle-wrapper: a gradle/wrapper/gradle-wrapper.properties file whose
+  distributionUrl is not on https://packages.jorisjonkers.dev/.
+- helm-repository: a Flux HelmRepository whose spec.url is not on
+  https://packages.jorisjonkers.dev/helm/.
 - allowlist: an entry in .github/package-proxy-allow.txt has no reason.
 
 OS packages (apt, apk) are out of scope. Installers are matched by text on run:
@@ -55,6 +59,8 @@ from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 SKIP_DIRS = frozenset({".git", ".github-workflows", "node_modules", "target", "build", ".gradle", "vendor"})
 DEFAULT_ALLOWLIST = ".github/package-proxy-allow.txt"
 PROXY_NPM = "https://packages.jorisjonkers.dev/npm/"
+PROXY_GRADLE = "https://packages.jorisjonkers.dev/generic/gradle/distributions/"
+PROXY_HELM = "https://packages.jorisjonkers.dev/helm/"
 PROXY_HOSTS = frozenset({"packages.jorisjonkers.dev", "maven.pkg.github.com"})
 GRADLE_NAMES = frozenset({"settings.gradle", "settings.gradle.kts", "build.gradle", "build.gradle.kts"})
 SHARED_WORKFLOW_PREFIX = "JorisJonkers-dev/github-workflows/.github/workflows/"
@@ -308,6 +314,58 @@ def scan_npmrc(rel: str, text: str, findings: list[Finding]) -> None:
             )
 
 
+def scalar_value(node: Node | None) -> str | None:
+    return node.value if isinstance(node, ScalarNode) else None
+
+
+def scan_helm_repository(rel: str, text: str, findings: list[Finding]) -> None:
+    """Scan a YAML file for Flux HelmRepository resources whose spec.url bypasses the proxy."""
+    try:
+        documents = list(yaml.compose_all(text, Loader=yaml.SafeLoader))
+    except yaml.YAMLError:
+        return
+    for document in documents:
+        api_version = scalar_value(mapping_get(document, "apiVersion"))
+        if not (api_version or "").startswith("source.toolkit.fluxcd.io/"):
+            continue
+        if scalar_value(mapping_get(document, "kind")) != "HelmRepository":
+            continue
+        spec = mapping_get(document, "spec")
+        url_node = mapping_get(spec, "url")
+        if not isinstance(url_node, ScalarNode):
+            continue
+        url = url_node.value
+        if scalar_value(mapping_get(spec, "type")) == "oci":
+            if url.startswith("oci://packages.jorisjonkers.dev/"):
+                continue
+            expected = "oci://packages.jorisjonkers.dev/"
+        elif url.startswith(PROXY_HELM):
+            continue
+        else:
+            expected = PROXY_HELM
+        findings.append(
+            Finding(rel, line_of(url_node, 0), "helm-repository", f"spec.url must be {expected}, found {url}")
+        )
+
+
+def scan_gradle_wrapper(rel: str, text: str, findings: list[Finding]) -> None:
+    """Scan a gradle-wrapper.properties file for a non-proxy distributionUrl."""
+    for number, line in enumerate(text.splitlines(), 1):
+        if line.startswith("distributionUrl="):
+            url = line.split("=", 1)[1].strip()
+            # Unescape the colon in the URL
+            url = url.replace("\\:", ":")
+            if not url.startswith(PROXY_GRADLE):
+                findings.append(
+                    Finding(
+                        rel,
+                        number,
+                        "gradle-wrapper",
+                        f"distributionUrl must be {PROXY_GRADLE}<version>-<type>.zip, found {url}",
+                    )
+                )
+
+
 def scan_gradle(rel: str, text: str, findings: list[Finding]) -> None:
     for number, line in enumerate(text.splitlines(), 1):
         stripped = line.strip()
@@ -343,6 +401,10 @@ def scan_file(rel: str, path: Path, findings: list[Finding]) -> None:
         scan_npmrc(rel, path.read_text(encoding="utf-8", errors="replace"), findings)
     elif name in GRADLE_NAMES:
         scan_gradle(rel, path.read_text(encoding="utf-8", errors="replace"), findings)
+    elif rel.endswith("gradle/wrapper/gradle-wrapper.properties"):
+        scan_gradle_wrapper(rel, path.read_text(encoding="utf-8", errors="replace"), findings)
+    elif not rel.startswith(".github/workflows/") and name.endswith((".yaml", ".yml")):
+        scan_helm_repository(rel, path.read_text(encoding="utf-8", errors="replace"), findings)
 
 
 def walk_files(root: Path):
