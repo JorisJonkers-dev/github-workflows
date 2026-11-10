@@ -82,6 +82,14 @@ caller that also sets `require-package-proxy: true` makes an empty token fail
 the job instead. A pull request from a fork never receives secrets, so it only
 warns. Composite actions take the same token as `packages-proxy-token`.
 
+`container-publish.yml`, `docker-image-ci.yml` and `crac-train.yml` also pull
+base images through the proxy when the secret is set: the build logs in to
+`packages.jorisjonkers.dev` as the user `packages` and names the proxy a
+BuildKit mirror of `docker.io`, `ghcr.io`, `gcr.io` and `quay.io`. BuildKit
+falls back to the registry itself when the mirror cannot serve an image, so
+the estate's own private `ghcr.io/jorisjonkers-dev/*` images still pull from
+GHCR. Without the secret nothing changes: no login, no mirror.
+
 `container-publish.yml` renamed its secret in this release from
 `packages-proxy-token` (v0.44.0 callers) to `PACKAGES_PROXY_TOKEN`. The old name
 still works as a deprecated alias: a caller that passes only `packages-proxy-token`
