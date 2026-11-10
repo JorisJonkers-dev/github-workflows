@@ -8,7 +8,8 @@
 # only after the commit is min-age-minutes old, never for drafts, bot authors or conflicted
 # pull requests. scripts/retrigger_missing_checks.py holds the logic and its tests.
 #
-# The App token needs pull request write on every repository of the organization.
+# The App token needs pull requests write, and actions, statuses and issues read, on every
+# repository of the organization. It reads the head commit's checks as Actions jobs.
 name: 'Retrigger Missing Required Checks'
 
 'on':
@@ -54,9 +55,8 @@ name: 'Retrigger Missing Required Checks'
           'owner': '${{ github.repository_owner }}'
           'permission-pull-requests': 'write'
           'permission-issues': 'read'
-          'permission-checks': 'read'
+          'permission-actions': 'read'
           'permission-statuses': 'read'
-          'permission-administration': 'read'
           'permission-metadata': 'read'
 
       - 'uses': 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # v7.0.1
