@@ -73,7 +73,10 @@ name: 'Repository Hygiene Guard'
           set -euo pipefail
 
           base_ref="${BASE_REF_INPUT:-$BASE_REF_FALLBACK}"
-          git fetch --no-tags --depth=1 origin "${base_ref#origin/}" || true
+          # fetch-depth 0 already holds every branch; a depth-1 fetch would shallow the base
+          # tip and drop its history, so the three-dot diff finds no merge base.
+          git rev-parse --verify --quiet "${base_ref}^{commit}" >/dev/null \
+            || git fetch --no-tags origin "${base_ref#origin/}" || true
           export BASE_REF="$base_ref"
 
           python3 - <<'PY'
@@ -248,7 +251,9 @@ name: 'Repository Hygiene Guard'
         'run': |
           set -euo pipefail
 
-          git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          # fetch-depth 0 above fetched every branch (persist-credentials is false, so a
+          # fetch here would fail in private repositories).
+          git rev-parse --verify --quiet "origin/${BASE_REF}^{commit}" >/dev/null
           # Everything the head adds over the base branch's tip: a merge of the base into the
           # branch brings no base commits into the range.
           python3 .github-workflows/scripts/attribution_guard.py --range "origin/${BASE_REF}..${HEAD_SHA}"
