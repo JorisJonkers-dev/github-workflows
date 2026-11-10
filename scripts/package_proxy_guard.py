@@ -5,7 +5,8 @@ Every JorisJonkers-dev repository installs third-party packages through
 packages.jorisjonkers.dev. This guard scans a checkout and reports eight rules:
 
 - uncovered-install: a workflow step runs an installer (npm, pnpm, yarn, pip,
-  uv, cargo, go, gradle, ./gradlew, mvn, ./mvnw) in a job that sets up the proxy
+  uv, cargo, go, gradle, ./gradlew, mvn, ./mvnw, task install, mise run install,
+  mise install) in a job that sets up the proxy
   with a token before it. A covering step is a setup-package-proxy, setup-java-gradle
   or setup-node step given its token, or a run step that writes the proxy netrc or
   the proxy index variables inline. Coverage is by step order, not by if:
@@ -98,6 +99,15 @@ INSTALLERS = (
     (re.compile(r"\bmvn\b"), "jvm", None),
 )
 
+# Task runners that install packages through a taskfile or mise.toml the guard
+# cannot read. Workflow run lines only: a Dockerfile RUN is not matched, and the
+# reusable workflows' own derivation (match_installer) is unaffected.
+TASK_RUNNER_INSTALLERS = (
+    (re.compile(r"(?<![\w./-])task install(?![\w:./-])"), "task", None),
+    (re.compile(r"(?<![\w./-])mise run install(?![\w:./-])"), "mise", None),
+    (re.compile(r"(?<![\w./-])mise install(?![\w:./-])"), "mise", None),
+)
+
 # The Dockerfile secret mount each manager's installs need. Cargo and jvm have none.
 MOUNTS = {
     "node": "id=packages-npmrc",
@@ -146,6 +156,18 @@ class Allow:
 def match_installer(text: str) -> Installer | None:
     """The first installer command in text, or None when it runs none."""
     for pattern, manager, index in INSTALLERS:
+        match = pattern.search(text)
+        if match:
+            return Installer(match.group(0), manager, index)
+    return None
+
+
+def match_workflow_installer(text: str) -> Installer | None:
+    """match_installer, plus task runners that install (task install, mise install)."""
+    hit = match_installer(text)
+    if hit:
+        return hit
+    for pattern, manager, index in TASK_RUNNER_INSTALLERS:
         match = pattern.search(text)
         if match:
             return Installer(match.group(0), manager, index)
@@ -238,7 +260,7 @@ def scan_workflow(rel: str, text: str, findings: list[Finding]) -> None:
             if first_cover is not None and first_cover < index:
                 continue
             for line_index, line in enumerate(run.value.splitlines()):
-                hit = match_installer(line)
+                hit = match_workflow_installer(line)
                 if hit:
                     findings.append(
                         Finding(

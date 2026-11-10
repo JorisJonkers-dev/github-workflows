@@ -345,6 +345,58 @@ def derive_installing_workflows(root: Path) -> set[str]:
     return derived
 
 
+TASK_RUNNERS = {
+    ".github/workflows/ci.yml": """\
+name: CI
+on: push
+jobs:
+  task:
+    steps:
+      - uses: jdx/mise-action@v5
+      - run: task install
+  mise-run:
+    steps:
+      - run: mise run install
+  mise:
+    steps:
+      - run: mise install node
+  covered:
+    steps:
+      - uses: JorisJonkers-dev/github-workflows/actions/setup-package-proxy@v0.48.0
+        with:
+          token: ${{ secrets.PACKAGES_PROXY_TOKEN }}
+      - run: task install
+  other-targets:
+    steps:
+      - run: task install-hooks
+      - run: task lint:install
+      - run: ./scripts/task install
+      - run: mise run installer
+      - run: task check
+""",
+    "Dockerfile": """\
+FROM debian
+RUN mise install
+""",
+}
+
+
+class TaskRunnerInstalls(unittest.TestCase):
+    def setUp(self) -> None:
+        self.findings, _ = guard.collect(make_tree(TASK_RUNNERS), guard.DEFAULT_ALLOWLIST)
+
+    def test_task_and_mise_installs_without_proxy_setup_are_reported(self) -> None:
+        found = [(f.line, f.message.split(" runs")[0]) for f in self.findings if f.rule == "uncovered-install"]
+        self.assertEqual([(7, "task install"), (10, "mise run install"), (13, "mise install")], found)
+
+    def test_unrelated_task_targets_and_covered_jobs_are_not_reported(self) -> None:
+        lines = [f.line for f in self.findings if f.rule == "uncovered-install"]
+        self.assertFalse(any(line >= 15 for line in lines))
+
+    def test_dockerfile_run_is_not_matched(self) -> None:
+        self.assertEqual([], [f for f in self.findings if f.path == "Dockerfile"])
+
+
 class InstallingWorkflows(unittest.TestCase):
     def test_guard_list_matches_this_repositorys_installing_workflows(self) -> None:
         self.assertEqual(derive_installing_workflows(REPO_ROOT), set(guard.INSTALLING_WORKFLOWS))
