@@ -198,3 +198,57 @@ name: 'Repository Hygiene Guard'
 
           "$RUNNER_TEMP/package-proxy-guard/bin/python" .github-workflows/scripts/package_proxy_guard.py \
             --root . --allowlist .github/package-proxy-allow.txt "${args[@]}"
+
+  # Owner decision 2026-11-09: no commit or pull request credits an AI agent, model or provider
+  # (scripts/attribution_guard.py, data/attribution-identities.json). The override label never
+  # skips it. It needs a pull_request event: on any other event it is skipped.
+  'attribution':
+    'name': 'Agent Attribution Guard'
+    'runs-on': 'ubuntu-latest'
+    'timeout-minutes': 10
+    'if': "${{ github.event.pull_request != null }}"
+    'steps':
+      # The pull request's head, not the merge commit, so the range holds only its own commits.
+      - 'uses': 'actions/checkout@v7'
+        'with':
+          'ref': '${{ github.event.pull_request.head.sha }}'
+          'fetch-depth': 0
+          'persist-credentials': false
+
+      - 'name': 'Check out github-workflows for the attribution guard'
+        'uses': 'actions/checkout@v7'
+        'with':
+          'repository': 'JorisJonkers-dev/github-workflows'
+          'ref': 'v0.45.0' # x-release-please-version
+          'path': '.github-workflows'
+          'persist-credentials': false
+
+      # A caller between a merge and the next release has a github-workflows checkout without the
+      # script; skip with a notice rather than fail the caller.
+      - 'name': 'Locate the attribution guard'
+        'id': 'attribution-script'
+        'run': |
+          set -euo pipefail
+
+          if [ -f .github-workflows/scripts/attribution_guard.py ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::.github-workflows has no attribution_guard.py at its pinned release; the attribution guard is skipped."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - 'name': 'Check the title, the body and every commit for agent attribution'
+        'if': "${{ steps.attribution-script.outputs.present == 'true' }}"
+        'env':
+          'PR_TITLE': '${{ github.event.pull_request.title }}'
+          'PR_BODY': '${{ github.event.pull_request.body }}'
+          'PR_AUTHOR': '${{ github.event.pull_request.user.login }}'
+          'BASE_REF': '${{ github.event.pull_request.base.ref }}'
+          'HEAD_SHA': '${{ github.event.pull_request.head.sha }}'
+        'run': |
+          set -euo pipefail
+
+          git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          # Everything the head adds over the base branch's tip: a merge of the base into the
+          # branch brings no base commits into the range.
+          python3 .github-workflows/scripts/attribution_guard.py --range "origin/${BASE_REF}..${HEAD_SHA}"
