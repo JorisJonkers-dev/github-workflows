@@ -500,3 +500,106 @@ class PackageProxyNpmConfigLocation(unittest.TestCase):
                 self.assertIn("NPM_CONFIG_USERCONFIG=", github_env)
                 self.assertIn("::warning::NPM_CONFIG_USERCONFIG points inside the workspace", output)
 
+
+
+GRADLE_WRAPPER_STEP = "Configure Gradle wrapper credentials"
+
+
+def _gradle_action_steps() -> list[dict]:
+    action = yaml.safe_load((ROOT / "actions" / "setup-java-gradle" / "action.yml").read_text(encoding="utf-8"))
+    return action["runs"]["steps"]
+
+
+class GradleWrapperCredentialsStep(unittest.TestCase):
+    """The proxy serves Gradle distributions behind Basic auth; the wrapper reads
+    gradle.wrapperUser / gradle.wrapperPassword from the Gradle user home."""
+
+    def _step(self) -> dict:
+        return next((s for s in _gradle_action_steps() if s.get("name") == GRADLE_WRAPPER_STEP), {})
+
+    def test_step_exists_is_gated_and_takes_the_token_from_env(self) -> None:
+        step = self._step()
+        self.assertTrue(step, "step is missing")
+        self.assertIn("inputs.packages-proxy-token != ''", step.get("if", ""))
+        self.assertEqual("${{ inputs.packages-proxy-token }}", step["env"]["PACKAGES_PROXY_TOKEN"])
+        self.assertNotIn("${{", step["run"])
+        self.assertIn("systemProp.gradle.wrapperUser=packages", step["run"])
+        self.assertIn("systemProp.gradle.wrapperPassword=", step["run"])
+
+    def test_step_masks_the_token(self) -> None:
+        self.assertIn("::add-mask::", self._step().get("run", ""))
+
+
+@unittest.skipUnless(shutil.which("bash"), "the Gradle step is a bash script")
+class GradleWrapperCredentialsRun(unittest.TestCase):
+    def _run(self, existing: str | None, *, token: str = "TESTKEY-123", user_home: bool = False):
+        step = next(s for s in _gradle_action_steps() if s.get("name") == GRADLE_WRAPPER_STEP)
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            gradle_home = Path(tmp) / "guh" if user_home else home / ".gradle"
+            home.mkdir()
+            props = gradle_home / "gradle.properties"
+            if existing is not None:
+                gradle_home.mkdir(parents=True)
+                props.write_text(existing, encoding="utf-8")
+            env = {"HOME": str(home), "PATH": os.environ.get("PATH", ""), "PACKAGES_PROXY_TOKEN": token}
+            if user_home:
+                env["GRADLE_USER_HOME"] = str(gradle_home)
+            result = subprocess.run(
+                ["bash", "-c", "set -euo pipefail\numask 022\n" + step["run"]],
+                env=env, check=True, capture_output=True, text=True,
+            )
+            text = props.read_text(encoding="utf-8") if props.exists() else None
+            mode = props.stat().st_mode & 0o777 if props.exists() else None
+            return text, mode, result.stdout + result.stderr, home
+
+    def test_creates_the_file_with_both_properties_privately(self) -> None:
+        text, mode, _, _ = self._run(None)
+        self.assertIn("systemProp.gradle.wrapperUser=packages\n", text)
+        self.assertIn("systemProp.gradle.wrapperPassword=TESTKEY-123\n", text)
+        self.assertEqual(0o600, mode)
+
+    def test_existing_lines_survive_and_old_wrapper_lines_are_replaced(self) -> None:
+        text, mode, _, _ = self._run(
+            "org.gradle.jvmargs=-Xmx2g\n"
+            "systemProp.gradle.wrapperUser=old\n"
+            "systemProp.gradle.wrapperPassword=OLD\n"
+            "systemProp.http.proxyHost=example\n"
+        )
+        self.assertIn("org.gradle.jvmargs=-Xmx2g", text)
+        self.assertIn("systemProp.http.proxyHost=example", text)
+        self.assertNotIn("OLD", text)
+        self.assertNotIn("wrapperUser=old", text)
+        self.assertEqual(1, text.count("wrapperUser="))
+        self.assertEqual(1, text.count("wrapperPassword="))
+        self.assertEqual(0o600, mode)
+
+    def test_existing_file_without_trailing_newline_keeps_its_last_line(self) -> None:
+        text, _, _, _ = self._run("org.gradle.daemon=false")
+        self.assertIn("org.gradle.daemon=false\n", text)
+        self.assertIn("systemProp.gradle.wrapperUser=packages\n", text)
+
+    def test_rerun_is_idempotent(self) -> None:
+        text, _, _, _ = self._run("systemProp.gradle.wrapperUser=packages\nsystemProp.gradle.wrapperPassword=TESTKEY-123\n")
+        self.assertEqual(1, text.count("wrapperUser="))
+        self.assertEqual(1, text.count("wrapperPassword="))
+
+    def test_gradle_user_home_is_honoured(self) -> None:
+        text, mode, _, home = self._run(None, user_home=True)
+        self.assertIn("wrapperPassword=TESTKEY-123", text)
+        self.assertEqual(0o600, mode)
+        self.assertFalse((home / ".gradle" / "gradle.properties").exists())
+
+    def test_empty_token_writes_nothing(self) -> None:
+        text, _, _, _ = self._run(None, token="")
+        self.assertIsNone(text)
+
+    def test_empty_token_leaves_an_existing_file_alone(self) -> None:
+        text, _, _, _ = self._run("a=b\n", token="")
+        self.assertEqual("a=b\n", text)
+
+    def test_the_token_is_not_printed_unmasked(self) -> None:
+        _, _, output, _ = self._run(None)
+        for line in output.splitlines():
+            if "TESTKEY-123" in line:
+                self.assertTrue(line.startswith("::add-mask::"), line)
