@@ -85,7 +85,7 @@ name: 'Repository Hygiene Guard'
             exit 1
           fi
           if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
-            git fetch --no-tags --unshallow origin || true
+            git fetch --no-tags --unshallow origin
           fi
           if ! git merge-base "$base_ref" HEAD >/dev/null; then
             echo "::error::HEAD and ${base_ref} share no commit in this checkout (shallow history?), so the changed files cannot be listed. The guard fails rather than pass unchecked."

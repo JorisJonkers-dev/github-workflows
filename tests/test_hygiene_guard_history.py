@@ -17,7 +17,8 @@ WORKFLOW = (ROOT / ".github" / "workflows" / "repository-hygiene-guard.yml").rea
 
 
 def git(cwd: Path, *args: str) -> str:
-    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
+    cmd = ["git", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", *args]
+    return subprocess.run(cmd, cwd=cwd, check=True, capture_output=True, text=True).stdout
 
 
 class HygieneGuardHistory(unittest.TestCase):
