@@ -172,6 +172,35 @@ runs:
         chmod 600 "$tmp"
         mv "$tmp" "$props"
 
+    - name: Configure Gradle proxy retries
+      if: ${{ inputs.packages-proxy-token != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        # Gradle retries a failed repository request on its own; these raise the
+        # attempt counts and the timeouts so a short proxy edge restart is ridden
+        # out. The block matches the one setup-package-proxy writes, so either
+        # action replaces the other's copy instead of duplicating it.
+        gradle_home="${GRADLE_USER_HOME:-$HOME/.gradle}"
+        mkdir -p "$gradle_home"
+        props="$gradle_home/gradle.properties"
+        touch "$props"
+        umask 077
+        {
+          awk '$0 == "# BEGIN packages-proxy" { skip = 1 } !skip { print } $0 == "# END packages-proxy" { skip = 0 }' "$props"
+          printf '# BEGIN packages-proxy\n'
+          printf 'systemProp.org.gradle.internal.http.connectionTimeout=60000\n'
+          printf 'systemProp.org.gradle.internal.http.socketTimeout=60000\n'
+          printf 'systemProp.org.gradle.internal.repository.max.tentatives=8\n'
+          printf 'systemProp.org.gradle.internal.repository.initial.backoff=1000\n'
+          printf 'systemProp.org.gradle.internal.network.retry.max.attempts=8\n'
+          printf 'systemProp.org.gradle.internal.network.retry.initial.backOff=1000\n'
+          printf '# END packages-proxy\n'
+        } > "$props.tmp"
+        chmod 600 "$props.tmp"
+        mv "$props.tmp" "$props"
+
     - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
       with:
         distribution: ${{ inputs.java-distribution }}

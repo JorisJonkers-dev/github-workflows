@@ -201,6 +201,12 @@ runs:
           printf 'registry=https://packages.jorisjonkers.dev/npm/\n'
           printf '//packages.jorisjonkers.dev/npm/:_authToken=%s\n' "$npm_key"
           printf '@jorisjonkers-dev:registry=https://npm.pkg.github.com\n'
+          # npm and pnpm both read these: 9 retries with a doubling backoff from
+          # 2s capped at 30s, so a short proxy edge restart is ridden out.
+          printf 'fetch-retries=9\n'
+          printf 'fetch-retry-factor=2\n'
+          printf 'fetch-retry-mintimeout=2000\n'
+          printf 'fetch-retry-maxtimeout=30000\n'
           printf '# END packages-proxy\n'
         } > "$userconfig.tmp"
         mv "$userconfig.tmp" "$userconfig"

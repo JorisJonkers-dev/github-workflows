@@ -530,6 +530,36 @@ class GradleWrapperCredentialsStep(unittest.TestCase):
         self.assertIn("::add-mask::", self._step().get("run", ""))
 
 
+@unittest.skipUnless(shutil.which("bash"), "the retry steps are bash scripts")
+class SetupActionsRetryProxyFetches(unittest.TestCase):
+    """setup-node and setup-java-gradle configure the proxy themselves, so they carry the retry budget too."""
+
+    NPM_LINES = ("fetch-retries=9", "fetch-retry-factor=2", "fetch-retry-mintimeout=2000", "fetch-retry-maxtimeout=30000")
+
+    def test_setup_node_npm_block_sets_the_retry_budget(self) -> None:
+        action = yaml.safe_load((ROOT / "actions" / "setup-node" / "action.yml").read_text(encoding="utf-8"))
+        step = next(s for s in action["runs"]["steps"] if s.get("name") == "Configure packages proxy for npm")
+        for line in self.NPM_LINES:
+            self.assertIn(line, step["run"])
+
+    def test_setup_java_gradle_writes_the_same_block_as_setup_package_proxy_without_duplicating(self) -> None:
+        mine = next((s for s in _gradle_action_steps() if s.get("name") == "Configure Gradle proxy retries"), {})
+        self.assertTrue(mine, "step is missing")
+        self.assertIn("inputs.packages-proxy-token != ''", mine.get("if", ""))
+        other = _action_step("Configure packages proxy retries for Gradle")
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            env = {"HOME": str(home), "PATH": os.environ.get("PATH", ""), "PACKAGES_PROXY_TOKEN": "TESTKEY-123"}
+            wrapper = next(s for s in _gradle_action_steps() if s.get("name") == GRADLE_WRAPPER_STEP)
+            for step in (wrapper, mine, other, mine):
+                subprocess.run(["bash", "-c", "set -euo pipefail\n" + step["run"]], env=env, check=True, capture_output=True, text=True)
+            props = (home / ".gradle" / "gradle.properties").read_text(encoding="utf-8")
+        self.assertEqual(1, props.count("# BEGIN packages-proxy"))
+        self.assertIn("systemProp.org.gradle.internal.repository.max.tentatives=8", props)
+        self.assertIn("systemProp.gradle.wrapperUser=packages", props)
+        self.assertIn("systemProp.gradle.wrapperPassword=TESTKEY-123", props)
+
+
 @unittest.skipUnless(shutil.which("bash"), "the Gradle step is a bash script")
 class GradleWrapperCredentialsRun(unittest.TestCase):
     def _run(self, existing: str | None, *, token: str = "TESTKEY-123", user_home: bool = False):
