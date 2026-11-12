@@ -5,6 +5,17 @@
 #   scripts/apply-rulesets-org.sh                       dry-run, whole org
 #   scripts/apply-rulesets-org.sh --repo fleet-infra    dry-run, one repo (repeatable)
 #   scripts/apply-rulesets-org.sh --apply               create/update for real
+#   scripts/apply-rulesets-org.sh --repo X --allow-bypass-removal   also let the template's bypass_actors
+#                                                          replace (remove from) a repo's own
+#
+# Bypass actors are preserved. The template's bypass_actors is [], and PUT
+# replaces the whole ruleset, so a naive apply silently wiped the GitHub Apps
+# that deploy repos (estate) use to push pin commits straight to main, and every
+# delivery then failed with GH013. Deploy repos keep bot bypass actors for pin
+# commits. So an update merges: existing actors are kept, template actors that
+# are missing are added, nothing is removed. The dry-run diff prints every
+# bypass change on "BYPASS" lines; a removal only happens with
+# --allow-bypass-removal.
 #
 # A required status check that never reports blocks every pull request, so the
 # template is adjusted per repository before it is applied:
@@ -27,14 +38,18 @@ GUARD_CHECK="repository-hygiene / Agent Attribution Guard"
 BASE_CHECK="Pipeline Complete"
 TEMPLATE="$(cd "$(dirname "$0")/.." && pwd)/.github/rulesets/main.json"
 APPLY=0
+ALLOW_BYPASS_REMOVAL=0
+BYPASS_JQ="$(cd "$(dirname "$0")" && pwd)/ruleset_bypass.jq"
 ONLY=()
 
+indent() { sed 's/^/   /'; }
 usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --apply) APPLY=1 ;;
     --dry-run) APPLY=0 ;;
+    --allow-bypass-removal) ALLOW_BYPASS_REMOVAL=1 ;;
     --repo) ONLY+=("${2:?--repo needs a name}"); shift ;;
     --owner) OWNER="${2:?}"; shift ;;
     --template) TEMPLATE="${2:?}"; shift ;;
@@ -45,6 +60,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 ORG_WORKFLOWS="$OWNER/github-workflows"
+((ALLOW_BYPASS_REMOVAL && ${#ONLY[@]} == 0)) && { echo "--allow-bypass-removal needs explicit --repo (it must never apply org-wide)" >&2; exit 2; }
 [[ "${OWNER,,}" == "nedap" ]] && { echo "refusing to touch nedap" >&2; exit 2; }
 [[ -f "$TEMPLATE" ]] || { echo "template not found: $TEMPLATE" >&2; exit 2; }
 
@@ -153,20 +169,42 @@ for repo in "${repos[@]}"; do
   fi
   id="$(jq -r '[.[] | select(.name=="Main" and .source_type=="Repository")][0].id // empty' <<<"$rulesets")"
   want="$(want_json "$inc")"
+
+  cur=null
+  if [[ -n "$id" ]]; then
+    if ! cur="$(gh api "repos/$OWNER/$repo/rulesets/$id")" || ! jq -e --arg id "$id" '(.id|tostring) == $id and (.bypass_actors|type) == "array"' >/dev/null <<<"$cur"; then echo "-- $repo: SKIP (cannot read ruleset $id)"; SUMMARY[$repo]="skip: ruleset unreadable"; continue; fi
+  fi
+  want="$(jq --argjson cur "$cur" --argjson allow "$ALLOW_BYPASS_REMOVAL" -f "$BYPASS_JQ" <<<"$want")"
   wantn="$(jq -S "$JQ_LIB shape | srt" <<<"$want")"
+  # Bypass changes, by actor identity (type:id): added, removed, kept-though-not-in-template.
+  bypass_lines="$(jq -nr --argjson allow "$ALLOW_BYPASS_REMOVAL" --argjson cur "$cur" --argjson tpl "$(jq -c '.bypass_actors // []' "$TEMPLATE")" --argjson want "$(jq -c '.bypass_actors' <<<"$want")" '
+    def key: "\(.actor_type):\(.actor_id) (\(.bypass_mode))";
+    def inl($l): . as $a | any($l[]; .actor_type == $a.actor_type and .actor_id == $a.actor_id);
+    ($cur.bypass_actors // []) as $have
+    | ($want[] | select(inl($have) | not) | "BYPASS ADD     \(key)"),
+      ($have[] | select(inl($want) | not) | "BYPASS REMOVE  \(key)"),
+      ($tpl[] | . as $t | ($have[] | select(.actor_type == $t.actor_type and .actor_id == $t.actor_id and .bypass_mode != $t.bypass_mode)) | "BYPASS MODE    \(key) (template says \($t.bypass_mode); \(if $allow == 1 then "WILL CHANGE" else "existing mode kept" end))"),
+      ($have[] | select(inl($want) and (inl($tpl) | not)) | "BYPASS KEEP    \(key) (not in template)")')"
+  bypass_note=""
+  grep -q '^BYPASS REMOVE' <<<"$bypass_lines" && bypass_note="; BYPASS REMOVAL"
+  grep -q '^BYPASS ADD' <<<"$bypass_lines" && bypass_note+="; bypass add"
+  grep -q '^BYPASS KEEP' <<<"$bypass_lines" && bypass_note+="; bypass kept"
 
   if [[ -n "$id" ]]; then
-    have="$(gh api "repos/$OWNER/$repo/rulesets/$id" | jq -S --argjson d "$want" "$JQ_LIB shape | proj(\$d) | srt")" || { echo "-- $repo: SKIP (cannot read ruleset $id)"; SUMMARY[$repo]="skip: ruleset unreadable"; continue; }
+    have="$(jq -S "$JQ_LIB shape | proj(\$d) | srt" --argjson d "$want" <<<"$cur")"
     if [[ "$have" == "$wantn" ]]; then
-      echo "-- $repo: UNCHANGED ($note)"; SUMMARY[$repo]="unchanged; $note"; continue
+      echo "-- $repo: UNCHANGED ($note$bypass_note)"
+      [[ -z "$bypass_lines" ]] || indent <<<"$bypass_lines"
+      SUMMARY[$repo]="unchanged; $note$bypass_note"; continue
     fi
     action=update
   else
     have='{}'; action=create
   fi
-  echo "-- $repo: ${action^^} ($note)"
+  echo "-- $repo: ${action^^} ($note$bypass_note)"
+  [[ -z "$bypass_lines" ]] || indent <<<"$bypass_lines"
   diff -u --label "$repo (current)" --label "$repo (desired)" <(jq -S . <<<"$have") <(jq -S . <<<"$wantn") | sed 's/^/   /' || true
-  SUMMARY[$repo]="$action; $note"
+  SUMMARY[$repo]="$action; $note$bypass_note"
   if ((APPLY)); then
     if [[ $action == update ]]; then
       gh api -X PUT "repos/$OWNER/$repo/rulesets/$id" --input - <<<"$want" >/dev/null || rc=1
