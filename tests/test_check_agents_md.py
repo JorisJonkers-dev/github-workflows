@@ -13,6 +13,7 @@ import runpy
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -118,6 +119,11 @@ class Symbols(RepoCase):
         self.write("src/b.py", "x = 1\n")
         self.assertEqual(self.problems("`src/::build_thing`"), [])
         self.assertEqual(self.problems("`src/::gone`"), ["dead symbol: src/::gone"])
+
+    def test_unreadable_file_is_a_dead_symbol_not_a_crash(self) -> None:
+        self.write("src/a.py", "def build_thing(): pass\n")
+        with mock.patch.object(Path, "read_text", side_effect=OSError("denied")):
+            self.assertEqual(lint._mentions(self.root / "src/a.py", "x"), False)
 
     def test_dead_path_before_the_symbol(self) -> None:
         self.assertEqual(self.problems("`src/gone.py::thing`"), ["dead path: src/gone.py"])

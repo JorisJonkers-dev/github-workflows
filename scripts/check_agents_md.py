@@ -115,7 +115,14 @@ def _mentions(path: Path, symbol: str) -> bool:
     """Say whether `symbol` appears as a whole word in a file, or under a directory."""
     pattern = re.compile(rf"\b{re.escape(symbol)}\b")
     files = [path] if path.is_file() else [entry for entry in path.rglob("*") if entry.is_file()]
-    return any(pattern.search(file.read_text(encoding="utf-8", errors="ignore")) for file in files)
+    for file in files:
+        try:
+            text = file.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if pattern.search(text):
+            return True
+    return False
 
 
 def _link_problem(root: Path, target: str) -> str:
