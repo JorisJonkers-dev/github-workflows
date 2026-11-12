@@ -79,6 +79,19 @@ name: 'Repository Hygiene Guard'
             || git fetch --no-tags origin "${base_ref#origin/}" || true
           export BASE_REF="$base_ref"
 
+          # The guard must compute a diff or fail; it never passes on an unchecked range.
+          if ! git rev-parse --verify --quiet "${base_ref}^{commit}" >/dev/null; then
+            echo "::error::Base ref ${base_ref} is not in the checkout, so the changed files cannot be listed. Fix the base-ref input or the checkout."
+            exit 1
+          fi
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+            git fetch --no-tags --unshallow origin
+          fi
+          if ! git merge-base "$base_ref" HEAD >/dev/null; then
+            echo "::error::HEAD and ${base_ref} share no commit in this checkout (shallow history?), so the changed files cannot be listed. The guard fails rather than pass unchecked."
+            exit 1
+          fi
+
           python3 - <<'PY'
           import fnmatch
           import os
@@ -95,10 +108,14 @@ name: 'Repository Hygiene Guard'
           allowlist_raw = os.environ.get('ALLOWLIST_REGEX', '').strip()
           allowlist = re.compile(allowlist_raw) if allowlist_raw else None
 
-          changed = subprocess.check_output(
-              ['git', 'diff', '--name-only', '--diff-filter=ACMR', f'{base_ref}...HEAD'],
-              text=True,
-          ).splitlines()
+          try:
+              changed = subprocess.check_output(
+                  ['git', 'diff', '--name-only', '--diff-filter=ACMR', f'{base_ref}...HEAD'],
+                  text=True,
+              ).splitlines()
+          except subprocess.CalledProcessError as error:
+              print(f'::error::git diff {base_ref}...HEAD failed (exit {error.returncode}); the guard cannot check the changed files and fails rather than pass.')
+              sys.exit(1)
 
           denied = []
           for path in changed:
@@ -253,7 +270,10 @@ name: 'Repository Hygiene Guard'
 
           # fetch-depth 0 above fetched every branch (persist-credentials is false, so a
           # fetch here would fail in private repositories).
-          git rev-parse --verify --quiet "origin/${BASE_REF}^{commit}" >/dev/null
+          if ! git rev-parse --verify --quiet "origin/${BASE_REF}^{commit}" >/dev/null; then
+            echo "::error::origin/${BASE_REF} is not in the checkout, so the commit range cannot be computed; the guard fails rather than pass unchecked."
+            exit 1
+          fi
           # Everything the head adds over the base branch's tip: a merge of the base into the
           # branch brings no base commits into the range.
           python3 .github-workflows/scripts/attribution_guard.py --range "origin/${BASE_REF}..${HEAD_SHA}"
