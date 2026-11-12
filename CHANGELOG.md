@@ -7,6 +7,20 @@
 * enforce zero-warning reusable CI gates for Node, Nix, Python, and JVM workflows
 * fail Gradle warnings and deprecations while making JVM lint static-only by default
 
+## [0.50.0](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.49.1...v0.50.0) (2026-11-12)
+
+
+### Features
+
+* **guard:** lint AGENTS.md for a missing file, dead paths and dead symbols ([#248](https://github.com/JorisJonkers-dev/github-workflows/issues/248)) ([d47fc0a](https://github.com/JorisJonkers-dev/github-workflows/commit/d47fc0aa9302ee009ae9d4d2c87a58c8dca9f6bb))
+* **rulesets:** apply the Main ruleset org-wide and require the Agent Attribution Guard ([#249](https://github.com/JorisJonkers-dev/github-workflows/issues/249)) ([17c9a7c](https://github.com/JorisJonkers-dev/github-workflows/commit/17c9a7c3ff07cb56ed131137598ec7818351dfd9))
+
+
+### Bug Fixes
+
+* **guard:** fail with a clear error when the hygiene guard has no merge base ([#246](https://github.com/JorisJonkers-dev/github-workflows/issues/246)) ([99c6346](https://github.com/JorisJonkers-dev/github-workflows/commit/99c63466630a83b93b6c29d91305f52ade9c1b5e))
+* **package-proxy:** retry package fetches through a short edge restart ([#251](https://github.com/JorisJonkers-dev/github-workflows/issues/251)) ([397dd08](https://github.com/JorisJonkers-dev/github-workflows/commit/397dd081daacade9311ac533ed2285a427cde879))
+
 ## [0.49.1](https://github.com/JorisJonkers-dev/github-workflows/compare/v0.49.0...v0.49.1) (2026-11-10)
 
 
