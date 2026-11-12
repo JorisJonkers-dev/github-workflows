@@ -23,6 +23,11 @@ name: 'Repository Hygiene Guard'
         'required': false
         'type': 'string'
         'default': 'report'
+      'agents-md-lint':
+        'description': 'report (default) warns about a missing AGENTS.md or a dead path or symbol in it and passes; enforce fails the job.'
+        'required': false
+        'type': 'string'
+        'default': 'report'
       'deny-globs':
         'description': 'Newline-separated denied path globs.'
         'required': false
@@ -218,6 +223,63 @@ name: 'Repository Hygiene Guard'
 
           "$RUNNER_TEMP/package-proxy-guard/bin/python" .github-workflows/scripts/package_proxy_guard.py \
             --root . --allowlist .github/package-proxy-allow.txt "${args[@]}"
+
+  # Every repository carries an AGENTS.md (spec #392, B7-03). The lint fails on a missing or empty
+  # file and on a path or symbol in it that no longer exists. It starts in report mode so a
+  # repository that has not added the file yet is not blocked; flip the input to enforce once it has.
+  'agents-md':
+    'name': 'AGENTS.md Lint'
+    'runs-on': 'ubuntu-latest'
+    'timeout-minutes': 10
+    'steps':
+      - 'uses': 'actions/checkout@v7'
+        'with':
+          'persist-credentials': false
+
+      - 'name': 'Check out github-workflows for the AGENTS.md lint'
+        'uses': 'actions/checkout@v7'
+        'with':
+          'repository': 'JorisJonkers-dev/github-workflows'
+          'ref': 'v0.49.1' # x-release-please-version
+          'path': '.github-workflows'
+          'persist-credentials': false
+
+      # A caller between a merge and the next release has a github-workflows checkout without
+      # the script; skip with a notice rather than fail the caller.
+      - 'name': 'Locate the AGENTS.md lint'
+        'id': 'agents-script'
+        'run': |
+          set -euo pipefail
+
+          if [ -f .github-workflows/scripts/check_agents_md.py ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::.github-workflows has no check_agents_md.py at its pinned release; the AGENTS.md lint is skipped."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - 'name': 'Check AGENTS.md for a missing file, dead paths and dead symbols'
+        'if': "${{ steps.agents-script.outputs.present == 'true' }}"
+        'env':
+          'AGENTS_MD_LINT': '${{ inputs.agents-md-lint }}'
+        'run': |
+          set -euo pipefail
+
+          case "$AGENTS_MD_LINT" in
+            report | enforce) ;;
+            *)
+              echo "::error::agents-md-lint must be report or enforce"
+              exit 1
+              ;;
+          esac
+
+          status=0
+          python3 .github-workflows/scripts/check_agents_md.py . || status=$?
+          if [ "$status" -ne 0 ] && [ "$AGENTS_MD_LINT" = report ]; then
+            echo "::warning::AGENTS.md lint found problems (report mode, not failing). Fix them, then set agents-md-lint: enforce."
+            exit 0
+          fi
+          exit "$status"
 
   # Owner decision 2026-11-09: no commit or pull request credits an AI agent, model or provider
   # (scripts/attribution_guard.py, data/attribution-identities.json). The override label never

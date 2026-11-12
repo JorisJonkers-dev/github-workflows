@@ -171,6 +171,14 @@ jobs:
           .venv-tests/bin/python -m coverage run --branch --source=scripts.attribution_guard -m unittest tests.test_attribution_guard
           .venv-tests/bin/python -m coverage report --show-missing --fail-under=100
 
+      # The lint runs in every caller's hygiene guard; a wrong verdict either blocks a repository
+      # on a live path or lets a dead one through, so every line and branch of it is held.
+      - name: Run AGENTS.md lint tests with branch coverage
+        if: ${{ !cancelled() }}
+        run: |
+          .venv-tests/bin/python -m coverage run --branch --source=scripts.check_agents_md -m unittest tests.test_check_agents_md
+          .venv-tests/bin/python -m coverage report --show-missing --fail-under=100
+
   # ---------------------------------------------------------------------------
   # Terminal aggregator. This is the single required check in the ruleset.
   # It runs even when an upstream job fails/cancels (if: always()) and then
