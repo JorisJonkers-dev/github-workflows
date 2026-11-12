@@ -549,12 +549,15 @@ class SetupActionsRetryProxyFetches(unittest.TestCase):
         other = _action_step("Configure packages proxy retries for Gradle")
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            env = {"HOME": str(home), "PATH": os.environ.get("PATH", "")}
-            for step in (mine, other, mine):
+            env = {"HOME": str(home), "PATH": os.environ.get("PATH", ""), "PACKAGES_PROXY_TOKEN": "TESTKEY-123"}
+            wrapper = next(s for s in _gradle_action_steps() if s.get("name") == GRADLE_WRAPPER_STEP)
+            for step in (wrapper, mine, other, mine):
                 subprocess.run(["bash", "-c", "set -euo pipefail\n" + step["run"]], env=env, check=True, capture_output=True, text=True)
             props = (home / ".gradle" / "gradle.properties").read_text(encoding="utf-8")
         self.assertEqual(1, props.count("# BEGIN packages-proxy"))
         self.assertIn("systemProp.org.gradle.internal.repository.max.tentatives=8", props)
+        self.assertIn("systemProp.gradle.wrapperUser=packages", props)
+        self.assertIn("systemProp.gradle.wrapperPassword=TESTKEY-123", props)
 
 
 @unittest.skipUnless(shutil.which("bash"), "the Gradle step is a bash script")
