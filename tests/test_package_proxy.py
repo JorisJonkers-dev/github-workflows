@@ -603,3 +603,397 @@ class GradleWrapperCredentialsRun(unittest.TestCase):
         for line in output.splitlines():
             if "TESTKEY-123" in line:
                 self.assertTrue(line.startswith("::add-mask::"), line)
+
+
+# --- Retries through a proxy restart -------------------------------------
+#
+# The proxy can be unreachable for a minute or two (connection refused,
+# resets, a bad certificate while routes load). Every package manager the
+# action configures gets a bounded retry budget instead of failing the job on
+# the first refused connection.
+
+PROXY_ACTION = "setup-package-proxy"
+PROXY_ACTION_DIR = ROOT / "actions" / PROXY_ACTION
+RETRY_HELPER = PROXY_ACTION_DIR / "bin" / "proxy-retry"
+
+NPM_STEP = "Configure packages proxy for npm"
+PYTHON_STEP = "Export package proxy environment"
+GRADLE_RETRY_STEP = "Configure packages proxy retries for Gradle"
+RETRY_PATH_STEP = "Put the retry helper on PATH"
+
+# npm's fetch-retries/fetch-retry-* are also pnpm's fetchRetries/fetchRetry*:
+# 2, 4, 8, 16, then 30s each: up to about 180s in total.
+NPM_RETRY_SETTINGS = (
+    "fetch-retries=9",
+    "fetch-retry-factor=2",
+    "fetch-retry-mintimeout=2000",
+    "fetch-retry-maxtimeout=30000",
+)
+
+PYTHON_RETRY_SETTINGS = (
+    "PIP_RETRIES=9",
+    "UV_HTTP_RETRIES=8",
+    "UV_HTTP_TIMEOUT=60",
+)
+
+# The exact property names in Gradle's source: `initial.backoff` for the
+# repository retries, `initial.backOff` for the network retries.
+GRADLE_RETRY_PROPERTIES = (
+    "systemProp.org.gradle.internal.http.connectionTimeout=60000",
+    "systemProp.org.gradle.internal.http.socketTimeout=60000",
+    "systemProp.org.gradle.internal.repository.max.tentatives=8",
+    "systemProp.org.gradle.internal.repository.initial.backoff=1000",
+    "systemProp.org.gradle.internal.network.retry.max.attempts=8",
+    "systemProp.org.gradle.internal.network.retry.initial.backOff=1000",
+)
+
+EXPRESSION_RE = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
+
+
+def _action_doc(action: str = PROXY_ACTION) -> dict:
+    return yaml.safe_load((ROOT / "actions" / action / "action.yml").read_text(encoding="utf-8"))
+
+
+def _action_step(name: str, action: str = PROXY_ACTION) -> dict:
+    """The step called `name`, or {} so a missing step fails with a clear message."""
+    return next((s for s in _action_doc(action)["runs"]["steps"] if s.get("name") == name), {})
+
+
+def _resolve_expressions(value: str, mapping: dict[str, str]) -> str:
+    return EXPRESSION_RE.sub(lambda match: mapping.get(match.group(1), ""), value)
+
+
+def _step_env(step: dict, mapping: dict[str, str]) -> dict[str, str]:
+    """The step's own env: mapping, with its ${{ ... }} expressions resolved."""
+    return {
+        key: _resolve_expressions(str(value), mapping)
+        for key, value in (step.get("env") or {}).items()
+    }
+
+
+def _run_step(step: dict, env: dict[str, str]) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["bash", "-c", "set -euo pipefail\numask 022\n" + step["run"]],
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _marked_block(text: str) -> str:
+    """The lines between the packages-proxy markers, or '' when there is no block."""
+    match = re.search(r"# BEGIN packages-proxy\n(.*?)# END packages-proxy", text, re.S)
+    return match.group(1) if match else ""
+
+
+def _base_env(tmp: str) -> dict[str, str]:
+    home = Path(tmp) / "home"
+    home.mkdir(exist_ok=True)
+    github_env = Path(tmp) / "github_env"
+    github_env.write_text("", encoding="utf-8")
+    github_path = Path(tmp) / "github_path"
+    github_path.write_text("", encoding="utf-8")
+    return {
+        "HOME": str(home),
+        "PATH": os.environ.get("PATH", ""),
+        "RUNNER_TEMP": tmp,
+        "GITHUB_ENV": str(github_env),
+        "GITHUB_PATH": str(github_path),
+    }
+
+
+@unittest.skipUnless(shutil.which("bash"), "the npm step is a bash script")
+class PackageProxyNpmRetries(unittest.TestCase):
+    """npm and pnpm retry a proxy restart on their own, from the marked block."""
+
+    def _run(self, runs: int = 1) -> str:
+        step = _action_step(NPM_STEP)
+        self.assertTrue(step, f"step {NPM_STEP!r} is missing")
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _base_env(tmp)
+            workspace = Path(tmp) / "ws"
+            workspace.mkdir()
+            env["GITHUB_WORKSPACE"] = str(workspace)
+            env.update(_step_env(step, {"inputs.token": "TESTKEY-123", "inputs.node": "true"}))
+            for _ in range(runs):
+                _run_step(step, env)
+            return (Path(env["HOME"]) / ".npmrc").read_text(encoding="utf-8")
+
+    def test_the_block_sets_the_fetch_retry_settings(self) -> None:
+        block = _marked_block(self._run())
+        self.assertTrue(block, "the npm block is missing")
+        for setting in NPM_RETRY_SETTINGS:
+            self.assertIn(setting + "\n", block)
+
+    def test_two_runs_leave_exactly_one_block(self) -> None:
+        text = self._run(runs=2)
+        self.assertEqual(1, text.count("# BEGIN packages-proxy"))
+        self.assertEqual(1, text.count("# END packages-proxy"))
+        for setting in NPM_RETRY_SETTINGS:
+            self.assertEqual(1, text.count(setting), setting)
+
+
+@unittest.skipUnless(shutil.which("bash"), "the environment step is a bash script")
+class PackageProxyPythonRetries(unittest.TestCase):
+    """pip and uv retry a proxy restart through their own environment variables."""
+
+    def _run(self, *, python: str) -> str:
+        step = _action_step(PYTHON_STEP)
+        self.assertTrue(step, f"step {PYTHON_STEP!r} is missing")
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _base_env(tmp)
+            env.update(_step_env(step, {"inputs.go": "true", "inputs.python": python}))
+            _run_step(step, env)
+            return Path(env["GITHUB_ENV"]).read_text(encoding="utf-8")
+
+    def test_the_python_retry_variables_are_exported(self) -> None:
+        text = self._run(python="true")
+        for setting in PYTHON_RETRY_SETTINGS:
+            self.assertIn(setting + "\n", text)
+
+    def test_no_python_variables_without_python(self) -> None:
+        text = self._run(python="false")
+        for name in (
+            "PIP_RETRIES",
+            "UV_HTTP_RETRIES",
+            "UV_HTTP_TIMEOUT",
+            "PIP_INDEX_URL",
+            "UV_DEFAULT_INDEX",
+        ):
+            self.assertNotIn(name, text)
+
+
+class PackageProxyGradleRetryInput(unittest.TestCase):
+    def test_the_action_declares_the_gradle_input(self) -> None:
+        inputs = _action_doc().get("inputs") or {}
+        self.assertIn("gradle", inputs)
+        self.assertEqual("true", str(inputs["gradle"].get("default")))
+
+    def test_the_step_runs_only_with_a_token_and_gradle_enabled(self) -> None:
+        step = _action_step(GRADLE_RETRY_STEP)
+        self.assertTrue(step, f"step {GRADLE_RETRY_STEP!r} is missing")
+        condition = step.get("if", "")
+        self.assertIn("inputs.token != ''", condition)
+        self.assertIn("inputs.gradle == 'true'", condition)
+
+
+@unittest.skipUnless(shutil.which("bash"), "the Gradle step is a bash script")
+class PackageProxyGradleRetries(unittest.TestCase):
+    """Gradle's own retries and timeouts live in the Gradle user home."""
+
+    def _run(
+        self,
+        existing: str | None = None,
+        *,
+        user_home: bool = False,
+        runs: int = 1,
+    ) -> tuple[str | None, bool, bool]:
+        """The written properties, plus whether the file landed in $HOME/.gradle
+        and in GRADLE_USER_HOME. The temp directory is gone by the time the
+        assertions run, so the two existence checks happen here."""
+        step = _action_step(GRADLE_RETRY_STEP)
+        self.assertTrue(step, f"step {GRADLE_RETRY_STEP!r} is missing")
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _base_env(tmp)
+            home = Path(env["HOME"])
+            gradle_home = Path(tmp) / "guh" if user_home else home / ".gradle"
+            props = gradle_home / "gradle.properties"
+            if existing is not None:
+                gradle_home.mkdir(parents=True, exist_ok=True)
+                props.write_text(existing, encoding="utf-8")
+            if user_home:
+                env["GRADLE_USER_HOME"] = str(gradle_home)
+            env.update(_step_env(step, {"inputs.token": "TESTKEY-123", "inputs.gradle": "true"}))
+            for _ in range(runs):
+                _run_step(step, env)
+            text = props.read_text(encoding="utf-8") if props.exists() else None
+            return (
+                text,
+                (home / ".gradle" / "gradle.properties").exists(),
+                props.exists(),
+            )
+
+    def test_the_block_sets_the_six_retry_properties(self) -> None:
+        text, _, _ = self._run()
+        self.assertIsNotNone(text, "gradle.properties was not written")
+        block = _marked_block(text)
+        self.assertTrue(block, "the Gradle block is missing")
+        for prop in GRADLE_RETRY_PROPERTIES:
+            self.assertIn(prop + "\n", block)
+
+    def test_unrelated_lines_survive(self) -> None:
+        text, _, _ = self._run(
+            "org.gradle.jvmargs=-Xmx2g\n"
+            "systemProp.http.proxyHost=example\n"
+            "org.gradle.daemon=false"
+        )
+        self.assertIn("org.gradle.jvmargs=-Xmx2g\n", text)
+        self.assertIn("systemProp.http.proxyHost=example\n", text)
+        self.assertIn("org.gradle.daemon=false\n", text)
+
+    def test_a_rerun_replaces_the_block_instead_of_stacking_it(self) -> None:
+        text, _, _ = self._run(runs=2)
+        self.assertEqual(1, text.count("# BEGIN packages-proxy"))
+        self.assertEqual(1, text.count("# END packages-proxy"))
+        for prop in GRADLE_RETRY_PROPERTIES:
+            self.assertEqual(1, text.count(prop), prop)
+
+    def test_an_existing_private_file_stays_private(self) -> None:
+        step = _action_step(GRADLE_RETRY_STEP)
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _base_env(tmp)
+            gradle_home = Path(env["HOME"]) / ".gradle"
+            gradle_home.mkdir(parents=True)
+            props = gradle_home / "gradle.properties"
+            props.write_text("gpr.key=SECRET\n", encoding="utf-8")
+            props.chmod(0o600)
+            env.update(_step_env(step, {"inputs.token": "TESTKEY-123", "inputs.gradle": "true"}))
+            _run_step(step, env)
+            self.assertEqual(0o600, props.stat().st_mode & 0o777)
+            self.assertIn("gpr.key=SECRET\n", props.read_text(encoding="utf-8"))
+
+    def test_gradle_user_home_is_honoured(self) -> None:
+        text, home_props, gradle_props = self._run(user_home=True)
+        self.assertIn(GRADLE_RETRY_PROPERTIES[0], text)
+        self.assertTrue(gradle_props, "gradle.properties is missing from GRADLE_USER_HOME")
+        self.assertFalse(home_props, "gradle.properties was written to $HOME/.gradle as well")
+
+
+@unittest.skipUnless(shutil.which("bash"), "the retry helper is a bash script")
+class PackageProxyRetryHelper(unittest.TestCase):
+    """Go has no retry of its own, so `proxy-retry` wraps the command."""
+
+    def _run(
+        self,
+        args: list[str],
+        *,
+        cwd: str | None = None,
+        env_extra: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess:
+        env = {
+            "HOME": cwd or os.environ.get("HOME", ""),
+            "PATH": os.environ.get("PATH", ""),
+            "PROXY_RETRY_INITIAL_DELAY": "0",
+        }
+        env.update(env_extra or {})
+        return subprocess.run(
+            [str(RETRY_HELPER), *args],
+            env=env,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_the_script_is_executable(self) -> None:
+        self.assertTrue(RETRY_HELPER.exists(), f"{RETRY_HELPER} is missing")
+        self.assertTrue(os.access(RETRY_HELPER, os.X_OK), "proxy-retry is not executable")
+
+    def test_zero_padded_and_oversized_attempt_counts_are_handled(self) -> None:
+        for value, expected in (("08", 8), ("003", 3), ("999", 32)):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp:
+                counter = Path(tmp) / "counter"
+                result = self._run(
+                    ["bash", "-c", f'echo x >> "{counter}"; exit 5'],
+                    cwd=tmp,
+                    env_extra={"PROXY_RETRY_ATTEMPTS": value},
+                )
+                self.assertEqual(5, result.returncode, result.stderr)
+                self.assertEqual(expected, len(counter.read_text(encoding="utf-8").splitlines()))
+
+    def test_a_successful_command_runs_once_without_a_retry_line(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            counter = Path(tmp) / "counter"
+            result = self._run(
+                ["bash", "-c", f'echo ran >> "{counter}"'],
+                cwd=tmp,
+            )
+            self.assertEqual(0, result.returncode)
+            self.assertEqual(1, len(counter.read_text(encoding="utf-8").splitlines()))
+            self.assertNotIn("proxy-retry:", result.stderr)
+
+    def test_two_failures_then_success_exits_zero(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            counter = Path(tmp) / "counter"
+            command = (
+                f'n=$(cat "{counter}" 2>/dev/null || echo 0); n=$((n + 1)); '
+                f'echo "$n" > "{counter}"; [ "$n" -ge 3 ]'
+            )
+            result = self._run(["bash", "-c", command], cwd=tmp)
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual("3", counter.read_text(encoding="utf-8").strip())
+            self.assertIn(
+                "proxy-retry: attempt 1/8 failed (exit 1), retrying in 0s",
+                result.stderr,
+            )
+            self.assertIn("proxy-retry: attempt 2/8 failed (exit 1)", result.stderr)
+
+    def test_an_always_failing_command_is_bounded_and_keeps_its_exit_code(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            counter = Path(tmp) / "counter"
+            result = self._run(
+                ["bash", "-c", f'echo x >> "{counter}"; exit 7'],
+                cwd=tmp,
+                env_extra={"PROXY_RETRY_ATTEMPTS": "3"},
+            )
+            self.assertEqual(7, result.returncode)
+            # Exactly three attempts: the loop stops at the budget, not at a timeout.
+            self.assertEqual(3, len(counter.read_text(encoding="utf-8").splitlines()))
+            self.assertIn("proxy-retry: attempt 1/3 failed (exit 7)", result.stderr)
+            self.assertNotIn("attempt 4", result.stderr)
+
+    def test_no_arguments_is_a_usage_error(self) -> None:
+        result = self._run([])
+        self.assertEqual(2, result.returncode)
+        self.assertTrue(result.stderr.strip(), "expected a usage message on stderr")
+
+    def test_garbage_env_values_fall_back_to_the_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            counter = Path(tmp) / "counter"
+            command = (
+                f'n=$(cat "{counter}" 2>/dev/null || echo 0); n=$((n + 1)); '
+                f'echo "$n" > "{counter}"; [ "$n" -ge 2 ]'
+            )
+            result = self._run(
+                ["bash", "-c", command],
+                cwd=tmp,
+                env_extra={
+                    "PROXY_RETRY_ATTEMPTS": "garbage",
+                    "PROXY_RETRY_INITIAL_DELAY": "garbage",
+                    "PROXY_RETRY_MAX_DELAY": "garbage",
+                },
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual("2", counter.read_text(encoding="utf-8").strip())
+            # The default attempt budget, not the garbage value.
+            self.assertIn("proxy-retry: attempt 1/8 failed", result.stderr)
+
+
+@unittest.skipUnless(shutil.which("bash"), "the PATH step is a bash script")
+class PackageProxyRetryHelperOnPath(unittest.TestCase):
+    def test_the_step_appends_the_action_bin_directory(self) -> None:
+        step = _action_step(RETRY_PATH_STEP)
+        self.assertTrue(step, f"step {RETRY_PATH_STEP!r} is missing")
+        self.assertNotIn("${{", step["run"], "the path belongs in an env var, not inline")
+        condition = step.get("if", "")
+        self.assertIn("inputs.token != ''", condition)
+        self.assertIn("inputs.go == 'true'", condition)
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _base_env(tmp)
+            env.update(
+                _step_env(
+                    step,
+                    {
+                        "inputs.token": "TESTKEY-123",
+                        "inputs.go": "true",
+                        "github.action_path": str(PROXY_ACTION_DIR),
+                    },
+                )
+            )
+            _run_step(step, env)
+            lines = [
+                line
+                for line in Path(env["GITHUB_PATH"]).read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual([str(PROXY_ACTION_DIR / "bin")], lines)

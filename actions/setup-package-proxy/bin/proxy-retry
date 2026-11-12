@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Retry a package fetch that has no retry of its own, such as `go mod download`.
+#
+# Usage: proxy-retry <command> [args...]
+#
+# The command runs up to PROXY_RETRY_ATTEMPTS times in total (default 8). After
+# a failed attempt the delay starts at PROXY_RETRY_INITIAL_DELAY seconds
+# (default 1) and doubles, capped at PROXY_RETRY_MAX_DELAY seconds (default 30).
+# The last exit code is returned, so a caller under `set -e` still fails.
+set -euo pipefail
+
+usage() {
+  printf 'usage: proxy-retry <command> [args...]\n' >&2
+}
+
+# A non-numeric or empty value falls back to the default, so a typo in a
+# workflow variable cannot turn the retry loop into a no-op or an endless one.
+to_int() {
+  case "${1:-}" in
+    '' | *[!0-9]*) printf '%s\n' "$2" ;;
+    *) printf '%s\n' "$((10#$1))" ;;
+  esac
+}
+
+if [ "$#" -eq 0 ]; then
+  usage
+  exit 2
+fi
+
+attempts="$(to_int "${PROXY_RETRY_ATTEMPTS:-}" 8)"
+if [ "$attempts" -lt 1 ]; then
+  attempts=8
+fi
+if [ "$attempts" -gt 32 ]; then
+  attempts=32
+fi
+delay="$(to_int "${PROXY_RETRY_INITIAL_DELAY:-}" 1)"
+max_delay="$(to_int "${PROXY_RETRY_MAX_DELAY:-}" 30)"
+if [ "$delay" -gt "$max_delay" ]; then
+  delay="$max_delay"
+fi
+
+attempt=1
+while :; do
+  status=0
+  "$@" || status=$?
+  if [ "$status" -eq 0 ]; then
+    exit 0
+  fi
+  if [ "$attempt" -ge "$attempts" ]; then
+    printf 'proxy-retry: attempt %d/%d failed (exit %d)\n' \
+      "$attempt" "$attempts" "$status" >&2
+    exit "$status"
+  fi
+  printf 'proxy-retry: attempt %d/%d failed (exit %d), retrying in %ds\n' \
+    "$attempt" "$attempts" "$status" "$delay" >&2
+  sleep "$delay"
+  attempt=$((attempt + 1))
+  delay=$((delay * 2))
+  if [ "$delay" -gt "$max_delay" ]; then
+    delay="$max_delay"
+  fi
+done
