@@ -1,9 +1,10 @@
 name: Setup Packages Proxy
 description: >-
-  Credentials and environment for the packages proxy. Writes a netrc file, an
-  npm config and a Cargo config, and exports Go and Python package manager
-  variables so downloads go through the proxy. Without a token it warns (or
-  fails when require-package-proxy is true); a fork pull request only warns.
+  Credentials, environment and bounded retries for the packages proxy. Writes a
+  netrc file, an npm config, a Cargo config and Gradle retry properties, and
+  exports Go and Python package manager variables so downloads go through the
+  proxy. Without a token it warns (or fails when require-package-proxy is true);
+  a fork pull request only warns.
 
 inputs:
   token:
@@ -17,7 +18,7 @@ inputs:
     required: false
     default: 'false'
   go:
-    description: Export GOPROXY and GOPRIVATE so Go module downloads use the proxy.
+    description: Export GOPROXY and GOPRIVATE so Go module downloads use the proxy, and put proxy-retry on PATH (Go has no retry of its own; wrap fetches as `proxy-retry go mod download`).
     required: false
     default: 'true'
   python:
@@ -30,6 +31,10 @@ inputs:
     default: 'true'
   cargo:
     description: Write a Cargo config that replaces crates.io with the proxy and export its token.
+    required: false
+    default: 'true'
+  gradle:
+    description: Write retry and timeout properties to the Gradle user home.
     required: false
     default: 'true'
 
@@ -109,8 +114,24 @@ runs:
           {
             printf 'PIP_INDEX_URL=https://packages.jorisjonkers.dev/pypi/simple/\n'
             printf 'UV_DEFAULT_INDEX=https://packages.jorisjonkers.dev/pypi/simple/\n'
+            # pip and uv retry a failed fetch on their own; these raise the count
+            # and the per-request timeout so a short proxy outage is ridden out.
+            printf 'PIP_RETRIES=9\n'
+            printf 'UV_HTTP_RETRIES=8\n'
+            printf 'UV_HTTP_TIMEOUT=60\n'
           } >> "$GITHUB_ENV"
         fi
+
+    - name: Put the retry helper on PATH
+      if: ${{ inputs.token != '' && inputs.go == 'true' }}
+      shell: bash
+      env:
+        RETRY_HELPER_DIR: ${{ github.action_path }}/bin
+      run: |
+        set -euo pipefail
+
+        # Go has no retry of its own, so a fetch is wrapped: proxy-retry go mod download
+        printf '%s\n' "$RETRY_HELPER_DIR" >> "$GITHUB_PATH"
 
     - name: Configure packages proxy for npm
       if: ${{ inputs.token != '' && inputs.node == 'true' }}
@@ -151,6 +172,13 @@ runs:
           printf 'registry=https://packages.jorisjonkers.dev/npm/\n'
           printf '//packages.jorisjonkers.dev/npm/:_authToken=%s\n' "$npm_key"
           printf '@jorisjonkers-dev:registry=https://npm.pkg.github.com\n'
+          # npm and pnpm both read these: 9 retries with a doubling backoff from
+          # 2s capped at 30s, up to ~180s in all (retry delays are randomised,
+          # so about half of that is the expectation).
+          printf 'fetch-retries=9\n'
+          printf 'fetch-retry-factor=2\n'
+          printf 'fetch-retry-mintimeout=2000\n'
+          printf 'fetch-retry-maxtimeout=30000\n'
           printf '# END packages-proxy\n'
         } > "$userconfig.tmp"
         mv "$userconfig.tmp" "$userconfig"
@@ -197,3 +225,33 @@ runs:
         {
           printf 'CARGO_REGISTRIES_JORISJONKERS_PACKAGES_TOKEN=Bearer %s\n' "$PACKAGES_PROXY_TOKEN"
         } >> "$GITHUB_ENV"
+
+    - name: Configure packages proxy retries for Gradle
+      if: ${{ inputs.token != '' && inputs.gradle == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        # Gradle retries a failed repository request on its own; these raise the
+        # attempt counts and the timeouts so a short proxy outage is ridden out.
+        # The property names are Gradle's own, including the capital O in the
+        # network.retry backOff and the lowercase one in the repository backoff.
+        gradle_home="${GRADLE_USER_HOME:-$HOME/.gradle}"
+        mkdir -p "$gradle_home"
+        props="$gradle_home/gradle.properties"
+        touch "$props"
+        umask 077
+        {
+          awk '$0 == "# BEGIN packages-proxy" { skip = 1 } !skip { print } $0 == "# END packages-proxy" { skip = 0 }' "$props"
+          printf '# BEGIN packages-proxy\n'
+          printf 'systemProp.org.gradle.internal.http.connectionTimeout=60000\n'
+          printf 'systemProp.org.gradle.internal.http.socketTimeout=60000\n'
+          printf 'systemProp.org.gradle.internal.repository.max.tentatives=8\n'
+          printf 'systemProp.org.gradle.internal.repository.initial.backoff=1000\n'
+          printf 'systemProp.org.gradle.internal.network.retry.max.attempts=8\n'
+          printf 'systemProp.org.gradle.internal.network.retry.initial.backOff=1000\n'
+          printf '# END packages-proxy\n'
+        } > "$props.tmp"
+        # The file may hold the GitHub Packages token, so it stays private.
+        chmod 600 "$props.tmp"
+        mv "$props.tmp" "$props"
