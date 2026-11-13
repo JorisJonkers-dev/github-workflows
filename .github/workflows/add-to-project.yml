@@ -75,7 +75,7 @@ name: 'Add to Project'
       - 'name': 'Mint organization Project token'
         'id': 'app-token'
         'if': '${{ env.PROJECT_AUTOMATION_APP_ID != '''' && env.PROJECT_AUTOMATION_APP_PRIVATE_KEY != '''' }}'
-        'uses': 'actions/create-github-app-token@v3'
+        'uses': 'actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510' # v3.3.0
         'with':
           'app-id': '${{ env.PROJECT_AUTOMATION_APP_ID }}'
           'private-key': '${{ env.PROJECT_AUTOMATION_APP_PRIVATE_KEY }}'
@@ -99,7 +99,7 @@ name: 'Add to Project'
 
       - 'name': 'Add issue or pull request'
         'if': "${{ github.event_name != 'workflow_dispatch' && !inputs.manual && inputs.scope != 'org' }}"
-        'uses': 'actions/add-to-project@v2.0.0'
+        'uses': 'actions/add-to-project@5afcf98fcd03f1c2f92c3c83f58ae24323cc57fd' # v2.0.0
         'with':
           'project-url': '${{ inputs.project-url }}'
           'github-token': '${{ steps.app-token.outputs.token || secrets.PROJECT_AUTOMATION_TOKEN }}'
