@@ -406,8 +406,8 @@ class MigrationReusableWorkflowSurfaceTest(unittest.TestCase):
         self.assertNotIn(":latest", self.container_publish)
 
     def test_project_and_hygiene_workflows_expose_their_surfaces(self) -> None:
-        self.assertIn("actions/create-github-app-token@v3", self.add_to_project)
-        self.assertIn("actions/add-to-project@v2.0.0", self.add_to_project)
+        self.assertRegex(self.add_to_project, r"actions/create-github-app-token@[0-9a-f]{40}'? # v3")
+        self.assertRegex(self.add_to_project, r"actions/add-to-project@[0-9a-f]{40}'? # v2\.0\.0")
         self.assertIn(".specify/**", self.hygiene_guard)
 
     def test_api_client_maven_publish_is_idempotent_on_existing_versions(self) -> None:

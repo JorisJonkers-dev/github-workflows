@@ -64,7 +64,7 @@ name: 'Repository Hygiene Guard'
     'timeout-minutes': 30
     'if': '${{ !contains(github.event.pull_request.labels.*.name, inputs.override-label) }}'
     'steps':
-      - 'uses': 'actions/checkout@v7'
+      - 'uses': 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # v7.0.1
         'with':
           'fetch-depth': 0
 
@@ -139,7 +139,7 @@ name: 'Repository Hygiene Guard'
           PY
 
       - 'name': 'Check out github-workflows for the package proxy guard'
-        'uses': 'actions/checkout@v7'
+        'uses': 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # v7.0.1
         'with':
           'repository': 'JorisJonkers-dev/github-workflows'
           'ref': 'v0.50.2' # x-release-please-version
@@ -232,12 +232,12 @@ name: 'Repository Hygiene Guard'
     'runs-on': 'ubuntu-latest'
     'timeout-minutes': 10
     'steps':
-      - 'uses': 'actions/checkout@v7'
+      - 'uses': 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # v7.0.1
         'with':
           'persist-credentials': false
 
       - 'name': 'Check out github-workflows for the AGENTS.md lint'
-        'uses': 'actions/checkout@v7'
+        'uses': 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # v7.0.1
         'with':
           'repository': 'JorisJonkers-dev/github-workflows'
           'ref': 'v0.50.2' # x-release-please-version
@@ -291,14 +291,14 @@ name: 'Repository Hygiene Guard'
     'if': "${{ github.event.pull_request != null }}"
     'steps':
       # The pull request's head, not the merge commit, so the range holds only its own commits.
-      - 'uses': 'actions/checkout@v7'
+      - 'uses': 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # v7.0.1
         'with':
           'ref': '${{ github.event.pull_request.head.sha }}'
           'fetch-depth': 0
           'persist-credentials': false
 
       - 'name': 'Check out github-workflows for the attribution guard'
-        'uses': 'actions/checkout@v7'
+        'uses': 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # v7.0.1
         'with':
           'repository': 'JorisJonkers-dev/github-workflows'
           'ref': 'v0.50.2' # x-release-please-version
