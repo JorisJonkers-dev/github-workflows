@@ -351,6 +351,27 @@ class RealPullRequests(unittest.TestCase):
             body = (FIXTURES / name).read_text(encoding="utf-8")
             self.assertEqual(check("chore(deps): update minor and patch dependencies", body, [], POLICY), [], name)
 
+    def test_quoted_release_notes_in_a_renovate_body_pass(self) -> None:
+        body = (FIXTURES / "renovate-quoted-claude-notes.md").read_text(encoding="utf-8")
+        for author in ("renovate[bot]", "app/renovate"):
+            self.assertEqual(check("chore(deps): update minor and patch dependencies", body, [], POLICY, author), [], author)
+
+    def test_the_same_notes_in_a_human_authored_body_are_refused(self) -> None:
+        body = (FIXTURES / "renovate-quoted-claude-notes.md").read_text(encoding="utf-8")
+        for author in ("", "ExtraToast", "someone[bot]"):
+            failures = check("chore(deps): update", body, [], POLICY, author)
+            self.assertTrue(any('a credit to an AI ("claude")' in f for f in failures), (author, failures))
+
+    def test_a_credit_outside_the_details_of_a_renovate_body_is_refused(self) -> None:
+        body = "Written with Claude.\n\n<details>\n- fix\n</details>\n\nReviewed by Kimi K2.7"
+        failures = check("chore(deps): update", body, [], POLICY, "renovate[bot]")
+        self.assertEqual([f.split(":")[1].strip() for f in failures], ["line 1", "line 7"], failures)
+
+    def test_a_trailer_or_email_inside_the_details_of_a_renovate_body_is_still_refused(self) -> None:
+        body = "<details>\nCo-Authored-By: Claude <noreply@anthropic.com>\nmail noreply@anthropic.com\n</details>"
+        failures = check("chore(deps): update", body, [], POLICY, "renovate[bot]")
+        self.assertEqual(len(failures), 2, failures)
+
     def test_a_release_please_body_passes(self) -> None:
         body = (FIXTURES / "release-please-agent-kit-268.md").read_text(encoding="utf-8")
         bot = "jorisjonkers-dev-agents[bot] <290081373+jorisjonkers-dev-agents[bot]@users.noreply.github.com>"

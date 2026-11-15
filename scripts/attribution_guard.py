@@ -15,6 +15,10 @@ title and body, and for every commit in the range:
   value is one; the robot emoji, outside Renovate's checkbox lines; an AI provider's email
   address; or a Claude Code link.
 
+One exception: in a body authored by an allowed generator bot (Renovate, Dependabot), text inside
+<details> blocks is the upstream project's release notes, quoted verbatim, so the credit-phrase and
+banner checks skip it; trailers, addresses, links and the emoji are still checked there.
+
 The identities, AI names and provider domains live in data/attribution-identities.json.
 
     attribution_guard.py [--title T] [--body B] [--pr-author LOGIN] [--range BASE..HEAD] [--identities FILE]
@@ -58,6 +62,8 @@ BANNER = re.compile(
 TRAILER_KEY = re.compile(r"^\s*(?P<key>[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+):\s")
 # A line that opens a markdown block: list item, heading, table row or quote.
 BLOCK_START = re.compile(r"^\s*(?:[-*+]\s|\d+[.)]\s|#{1,6}\s|\||>)")
+DETAILS_OPEN = re.compile(r"<details\b", re.IGNORECASE)
+DETAILS_CLOSE = re.compile(r"</details\s*>", re.IGNORECASE)
 ROBOT = "\N{ROBOT FACE}"
 # Renovate's own checkboxes, such as "- [ ] <!-- manual-job -->🤖 Pick PR", carry a comment marker.
 RENOVATE_CHECKBOX = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s*<!--")
@@ -125,6 +131,14 @@ class Policy:
                 return name
         return self.ai_word(slug)
 
+    def is_generator_bot(self, login: str) -> bool:
+        """Whether a pull request author login is a bot of an allowed generator (renovate[bot], app/renovate)."""
+        bare = login.strip().casefold()
+        if not (bare.startswith("app/") or bare.endswith("[bot]")):
+            return False
+        slug = bare.removeprefix("app/").removesuffix("[bot]").replace("-", " ")
+        return slug in {generator.replace("-", " ") for generator in self.generators}
+
     def is_provider_domain(self, domain: str) -> bool:
         domain = domain.casefold()
         if any(domain == known or domain.endswith("." + known) for known in self.provider_domains):
@@ -184,8 +198,9 @@ def credit_refusal(text: str, policy: Policy) -> str | None:
     return None
 
 
-def line_refusal(line: str, policy: Policy) -> str | None:
-    """Why a line of a commit message, title or body credits an AI, or None."""
+def line_refusal(line: str, policy: Policy, credits: bool = True) -> str | None:
+    """Why a line of a commit message, title or body credits an AI, or None. credits=False skips the
+    credit-phrase and banner checks only, for quoted upstream release notes."""
     co_author = CO_AUTHOR.match(line)
     if co_author:
         identity = IDENTITY.match(co_author.group(1).strip())
@@ -208,7 +223,7 @@ def line_refusal(line: str, policy: Policy) -> str | None:
                 why = None if marker is None else f'"{value}" names an AI ("{marker}")'
             if why is not None:
                 return f"a {key} trailer credits an AI: {why}"
-    if (why := credit_refusal(line, policy)) is not None:
+    if credits and (why := credit_refusal(line, policy)) is not None:
         return why
     if ROBOT in line and not RENOVATE_CHECKBOX.match(line):
         return "the robot emoji"
@@ -220,15 +235,23 @@ def line_refusal(line: str, policy: Policy) -> str | None:
     return None
 
 
-def text_findings(text: str, policy: Policy) -> list[str]:
+def text_findings(text: str, policy: Policy, quoted_notes: bool = False) -> list[str]:
     """Every refused line of text, as "line N: why: the line". A credit wrapped across a line break
     ("Reviewed by" then "Kimi K2.7", "Generated" then "with ...") is found by trying each line joined
-    to the one or two lines before it in the same paragraph, and reported at the line it starts on."""
+    to the one or two lines before it in the same paragraph, and reported at the line it starts on.
+
+    quoted_notes is for a generator bot's body: what sits inside a <details> block is the upstream
+    project's release notes, quoted verbatim ("written with a claude.ai connector's name"), so the
+    credit phrases are not checked there. Trailers, emails, links and the robot emoji still are."""
     findings = []
+    depth = 0
     lines = text.splitlines()
     window: list[tuple[int, str]] = []
     for number, line in enumerate(lines, start=1):
-        why = line_refusal(line, policy)
+        opens, closes = len(DETAILS_OPEN.findall(line)), len(DETAILS_CLOSE.findall(line))
+        quoted = quoted_notes and (depth > 0 or opens > 0)
+        depth = max(0, depth + opens - closes)
+        why = line_refusal(line, policy, credits=not quoted)
         if why is not None:
             findings.append(f"line {number}: {why}: {line.strip()}")
             window = []
@@ -239,7 +262,7 @@ def text_findings(text: str, policy: Policy) -> list[str]:
         # A line that opens a list item, heading, table row or quote starts a new block.
         window = [(number, line)] if BLOCK_START.match(line) else [*window[-2:], (number, line)]
         for size in (2, 3):
-            if len(window) < size:
+            if quoted or len(window) < size:
                 break
             start, _ = window[-size]
             joined = " ".join(part.strip() for _, part in window[-size:])
@@ -290,7 +313,7 @@ def check(title: str, body: str, commits: list[Commit], policy: Policy, pr_autho
     if pr_author and (why := author_refusal(pr_author, policy)) is not None:
         failures.append(f"pull request author: {why}")
     failures += [f"pull request title: {finding}" for finding in text_findings(title, policy)]
-    failures += [f"pull request body: {finding}" for finding in text_findings(body, policy)]
+    failures += [f"pull request body: {finding}" for finding in text_findings(body, policy, quoted_notes=policy.is_generator_bot(pr_author))]
     for commit in commits:
         why = identity_refusal(commit.author_name, commit.author_email, policy)
         if why is not None:
