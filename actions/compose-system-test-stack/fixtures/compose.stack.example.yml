@@ -36,7 +36,7 @@ services:
       retries: 12
 
   cache:
-    image: ${SYSTEM_TEST_VALKEY_IMAGE:-valkey/valkey:7-alpine}
+    image: ${SYSTEM_TEST_VALKEY_IMAGE:-valkey/valkey:7-alpine@sha256:f8c1a646f4b31ae4dc3980ff06723a20b533ea1123b9796d450d78ed53ad6d3e}
     healthcheck:
       test: ["CMD", "valkey-cli", "ping"]
       interval: 5s
